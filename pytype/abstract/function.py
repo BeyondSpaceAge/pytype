@@ -17,7 +17,7 @@ _make = abstract_utils._make  # pylint: disable=protected-access
 
 def argname(i):
   """Get a name for an unnamed positional argument, given its position."""
-  return "_" + str(i)
+  return f"_{str(i)}"
 
 
 def get_signatures(func):
@@ -36,8 +36,7 @@ def get_signatures(func):
   elif _isinstance(func.cls, "CallableClass"):
     return [Signature.from_callable(func.cls)]
   else:
-    unwrapped = abstract_utils.maybe_unwrap_decorated_function(func)
-    if unwrapped:
+    if unwrapped := abstract_utils.maybe_unwrap_decorated_function(func):
       return list(itertools.chain.from_iterable(
           get_signatures(f) for f in unwrapped.data))
     if _isinstance(func, "Instance"):
@@ -111,10 +110,10 @@ class Signature:
 
   def add_scope(self, module):
     """Add scope for type parameters in annotations."""
-    annotations = {}
-    for key, val in self.annotations.items():
-      annotations[key] = val.ctx.annotation_utils.add_scope(
-          val, self.excluded_types, module)
+    annotations = {
+        key: val.ctx.annotation_utils.add_scope(val, self.excluded_types, module)
+        for key, val in self.annotations.items()
+    }
     self.annotations = annotations
 
   def _postprocess_annotation(self, name, annotation):
@@ -248,8 +247,8 @@ class Signature:
     )
 
   def has_param(self, name):
-    return name in self.param_names or name in self.kwonly_params or (
-        name == self.varargs_name or name == self.kwargs_name)
+    return (name in self.param_names or name in self.kwonly_params
+            or name in [self.varargs_name, self.kwargs_name])
 
   def insert_varargs_and_kwargs(self, args):
     """Insert varargs and kwargs from args into the signature.
@@ -302,8 +301,7 @@ class Signature:
       namedarg = args.namedargs[name]
       formal = self.annotations.get(name)
       if formal is None and self.kwargs_name:
-        kwargs_type = self.annotations.get(self.kwargs_name)
-        if kwargs_type:
+        if kwargs_type := self.annotations.get(self.kwargs_name):
           formal = kwargs_type.ctx.convert.get_element_type(kwargs_type)
       yield (name, namedarg, formal)
     if self.varargs_name is not None and args.starargs is not None:
@@ -329,37 +327,34 @@ class Signature:
     """Yield all the function arguments."""
     names = list(self.param_names)
     if self.varargs_name:
-      names.append("*" + self.varargs_name)
+      names.append(f"*{self.varargs_name}")
     elif self.kwonly_params:
       names.append("*")
     names.extend(sorted(self.kwonly_params))
     if self.kwargs_name:
-      names.append("**" + self.kwargs_name)
+      names.append(f"**{self.kwargs_name}")
     for name in names:
       base_name = name.lstrip("*")
       annot = self._print_annot(base_name)
       default = self._print_default(base_name)
-      yield name + (": " + annot if annot else "") + (
-          " = " + default if default else "")
+      yield (name + (f": {annot}" if annot else "") +
+             (f" = {default}" if default else ""))
 
   def _print_annot(self, name):
     return _print(self.annotations[name]) if name in self.annotations else None
 
   def _print_default(self, name):
-    if name in self.defaults:
-      values = self.defaults[name].data
-      if len(values) > 1:
-        return "Union[%s]" % ", ".join(_print(v) for v in values)
-      else:
-        return _print(values[0])
-    else:
+    if name not in self.defaults:
       return None
+    values = self.defaults[name].data
+    return (f'Union[{", ".join((_print(v) for v in values))}]'
+            if len(values) > 1 else _print(values[0]))
 
   def __repr__(self):
     args = ", ".join(self._yield_arguments())
     ret = self._print_annot("return")
     return "def {name}({args}) -> {ret}".format(
-        name=self.name, args=args, ret=ret if ret else "Any")
+        name=self.name, args=args, ret=ret or "Any")
 
   def get_first_arg(self, callargs):
     return callargs.get(self.param_names[0]) if self.param_names else None
@@ -464,11 +459,10 @@ class Args(collections.namedtuple(
         # to f(<k args>, *ys) since ys is an indefinite tuple anyway and will
         # match against all remaining posargs.
         return posargs + tuple(pre), abstract_utils.unwrap_splat(star)
-      else:
-        # If we do not have a `*args` in match_signature, just expand the
-        # terminal splat to as many args as needed and then drop it.
-        mid = self._expand_typed_star(ctx, node, star, posarg_delta)
-        return posargs + tuple(pre + mid), None
+      # If we do not have a `*args` in match_signature, just expand the
+      # terminal splat to as many args as needed and then drop it.
+      mid = self._expand_typed_star(ctx, node, star, posarg_delta)
+      return posargs + tuple(pre + mid), None
     elif posarg_delta <= len(stars):
       # We have too many args; don't do *xs expansion. Go back to matching from
       # the start and treat every entry in starargs_tuple as length 1.
@@ -876,8 +870,8 @@ def match_all_args(ctx, node, func, args):
           break
         else:
           raise AssertionError(
-              "Mismatched parameter %s not found in passed_args" %
-              arg_name) from e
+              f"Mismatched parameter {arg_name} not found in passed_args"
+          ) from e
       else:
         # This is not an InvalidParameters error.
         raise

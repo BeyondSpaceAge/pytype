@@ -114,7 +114,7 @@ class DatatypesTest(unittest.TestCase):
     self.assertEqual("hello", d["alias"])
     self.assertEqual("hello", d["name"])
     self.assertEqual("world", d["name2"])
-    d.add_alias("name", "name2", op=lambda x, y: x + " " + y)
+    d.add_alias("name", "name2", op=lambda x, y: f"{x} {y}")
     self.assertEqual("hello world", d["name"])
     self.assertEqual("hello world", d["name2"])
     self.assertEqual("hello world", d["alias"])
@@ -173,7 +173,7 @@ class DatatypesTest(unittest.TestCase):
 
     d.add_alias("alias1", "alias8", str.__add__)
     for i in range(1, 9):
-      self.assertEqual(d["alias" + str(i)], "1234")
+      self.assertEqual(d[f"alias{str(i)}"], "1234")
 
   def test_aliasing_dict_get(self):
     d = datatypes.AliasingDict()

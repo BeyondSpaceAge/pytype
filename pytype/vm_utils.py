@@ -247,23 +247,16 @@ def get_name_error_details(
   # Scope 'None' represents the global scope.
   prefix, class_name_parts = None, []
   for scope in itertools.chain(
-      reversed(_get_scopes(state, parts, ctx)), [None]):  # pytype: disable=wrong-arg-types
-    if class_name_parts:
-      # We have located a class that 'name' is defined in and are now
-      # constructing the name by which the class should be referenced.
-      if isinstance(scope, abstract.InterpreterClass):
-        class_name_parts.append(scope.name)
-      elif scope:
-        prefix = clean(scope.name)
-        break
-    elif isinstance(scope, abstract.InterpreterClass):
-      # TODO(rechen): Remove this disable once pytype can analyze abstract.py.
-      # pytype: disable=attribute-error
-      if name in scope.members:
-        # The user may have intended to reference <Class>.<name>
-        class_name_parts.append(scope.name)
-      # pytype: enable=attribute-error
-    else:
+      reversed(_get_scopes(state, parts, ctx)), [None]):# pytype: disable=wrong-arg-types
+    if (class_name_parts and isinstance(scope, abstract.InterpreterClass) or
+        not class_name_parts and isinstance(scope, abstract.InterpreterClass)
+        and name in scope.members):
+      class_name_parts.append(scope.name)
+    elif class_name_parts and scope:
+      prefix = clean(scope.name)
+      break
+    elif not class_name_parts and not isinstance(scope,
+                                                 abstract.InterpreterClass):
       outer_scope = None
       if scope:
         # 'name' is defined in an outer function but not accessible, so it
@@ -322,8 +315,7 @@ def log_opcode(op, state, frame, stack_size):
   indent = " > " * (stack_size - 1)
   stack_rep = repper(state.data_stack)
   block_stack_rep = repper(state.block_stack)
-  module_name = _module_name(frame)
-  if module_name:
+  if module_name := _module_name(frame):
     name = frame.f_code.co_name
     log.info("%s | index: %d, %r, module: %s line: %d",
              indent, op.index, name, module_name, op.line)
@@ -412,8 +404,7 @@ def _expand_generic_protocols(node, bases, ctx):
                                           ctx, b.data.template), {b}, node)
         else:
           protocol_base.PasteBinding(b)
-      expanded_bases.append(protocol_base)
-      expanded_bases.append(generic_base)
+      expanded_bases.extend((protocol_base, generic_base))
     else:
       expanded_bases.append(base)
   return expanded_bases
@@ -461,7 +452,7 @@ def make_class(node, props, ctx):
     return ctx.convert.create_new_unknown(node)
   # Handle six.with_metaclass.
   metacls, bases = _filter_out_metaclasses(props.bases, ctx)
-  cls_var = metacls if metacls else props.metaclass_var
+  cls_var = metacls or props.metaclass_var
   # Flatten Unions in the bases
   bases = [_process_base_class(node, base, ctx) for base in bases]
   # Expand Protocol[T, ...] to Protocol, Generic[T, ...]
@@ -539,8 +530,8 @@ def _check_defaults(node, method, ctx):
   try:
     _, errors = function.match_all_args(ctx, node, method, args)
   except function.FailedFunctionCall as e:
-    raise AssertionError("Unexpected argument matching error: %s" %
-                         e.__class__.__name__) from e
+    raise AssertionError(
+        f"Unexpected argument matching error: {e.__class__.__name__}") from e
   for e, arg_name, value in errors:
     bad_param = e.bad_call.bad_param
     expected_type = bad_param.expected
@@ -563,8 +554,7 @@ def make_function(name, node, code, globs, defaults, kw_defaults, closure,
                   annotations, opcode, ctx):
   """Create a function or closure given the arguments."""
   if closure:
-    closure = tuple(
-        c for c in abstract_utils.get_atomic_python_constant(closure))
+    closure = tuple(abstract_utils.get_atomic_python_constant(closure))
     log.info("closure: %r", closure)
   if not name:
     name = abstract_utils.get_atomic_python_constant(code).co_name
@@ -607,8 +597,7 @@ def update_excluded_types(node, ctx):
   # TypeVars that appear in variable annotations in a function body also need to
   # be added to excluded_types.
   for name, local in ctx.vm.current_annotated_locals.items():
-    typ = local.get_type(node, name)
-    if typ:
+    if typ := local.get_type(node, name):
       func.signature.excluded_types.update(
           p.name for p in ctx.annotation_utils.get_type_parameters(typ))
     if local.orig:
@@ -627,9 +616,7 @@ def push_block(state, t, level=None):
 
 
 def _base(cls):
-  if isinstance(cls, abstract.ParameterizedClass):
-    return cls.base_cls
-  return cls
+  return cls.base_cls if isinstance(cls, abstract.ParameterizedClass) else cls
 
 
 def _overrides(subcls, supercls, attr):
@@ -766,11 +753,8 @@ def call_inplace_operator(state, iname, x, y, ctx):
 
 def get_closure_var_name(frame, arg):
   n_cellvars = len(frame.f_code.co_cellvars)
-  if arg < n_cellvars:
-    name = frame.f_code.co_cellvars[arg]
-  else:
-    name = frame.f_code.co_freevars[arg - n_cellvars]
-  return name
+  return (frame.f_code.co_cellvars[arg]
+          if arg < n_cellvars else frame.f_code.co_freevars[arg - n_cellvars])
 
 
 def check_for_deleted(state, name, var, ctx):
@@ -1091,11 +1075,11 @@ def to_coroutine(state, obj, top, ctx):
   Returns:
     A tuple of the state and a cfg.Variable of coroutines.
   """
-  bad_bindings = []
-  for b in obj.bindings:
-    if ctx.matcher(state.node).match_var_against_type(
-        obj, ctx.convert.coroutine_type, {}, {obj: b}) is None:
-      bad_bindings.append(b)
+  bad_bindings = [
+      b for b in obj.bindings
+      if ctx.matcher(state.node).match_var_against_type(
+          obj, ctx.convert.coroutine_type, {}, {obj: b}) is None
+  ]
   if not bad_bindings:  # there are no non-coroutines
     return state, obj
   ret = ctx.program.NewVariable()

@@ -21,8 +21,8 @@ from pytype import pytype_source_utils
 def _validate_python_version_upper_bound():
   for frame_summary in traceback.extract_stack():
     head, tail = os.path.split(frame_summary.filename)
-    if "/pytype/" in head + "/" and (
-        tail.startswith("test_") or tail.endswith("_test.py")):
+    if "/pytype/" in f"{head}/" and ((tail.startswith("test_")
+                                      or tail.endswith("_test.py"))):
       return False
   return True
 
@@ -83,18 +83,13 @@ def validate_version(python_version):
 
 def strip_prefix(string, prefix):
   """Strip off prefix if it exists."""
-  if string.startswith(prefix):
-    return string[len(prefix):]
-  return string
+  return string[len(prefix):] if string.startswith(prefix) else string
 
 
 def maybe_truncate(s, length=30):
   """Truncate long strings (and append '...'), but leave short strings alone."""
   s = str(s)
-  if len(s) > length-3:
-    return s[0:length-3] + "..."
-  else:
-    return s
+  return s[:length-3] + "..." if len(s) > length-3 else s
 
 
 def pretty_conjunction(conjunction):
@@ -125,10 +120,7 @@ def pretty_dnf(dnf):
   Returns:
     A pretty-printed string.
   """
-  if not dnf:
-    return "false"
-  else:
-    return " | ".join(pretty_conjunction(c) for c in dnf)
+  return " | ".join(pretty_conjunction(c) for c in dnf) if dnf else "false"
 
 
 def numeric_sort_key(s):
@@ -143,9 +135,8 @@ def native_str(s, errors="strict"):
   """Convert a bytes object to the native str type."""
   if isinstance(s, str):
     return s
-  else:
-    assert isinstance(s, bytes)
-    return s.decode("utf-8", errors)
+  assert isinstance(s, bytes)
+  return s.decode("utf-8", errors)
 
 
 def get_python_exes(python_version) -> Iterable[List[str]]:
@@ -156,17 +147,13 @@ def get_python_exes(python_version) -> Iterable[List[str]]:
   Yields:
     The path to the executable
   """
-  # Use custom interpreters, if provided, in preference to the ones in $PATH
-  custom_python_exe = pytype_source_utils.get_custom_python_exe(python_version)
-  if custom_python_exe:
+  if custom_python_exe := pytype_source_utils.get_custom_python_exe(
+      python_version):
     yield [custom_python_exe]
     return
   for version in (format_version(python_version), "3"):
-    if sys.platform == "win32":
-      python_exe = ["py", f"-{version}"]
-    else:
-      python_exe = [f"python{version}"]
-    yield python_exe
+    yield ["py", f"-{version}"
+           ] if sys.platform == "win32" else [f"python{version}"]
 
 
 def get_python_exe_version(python_exe: List[str]):
@@ -194,11 +181,8 @@ def parse_exe_version_string(version_str):
   Returns:
     Version as (major, minor) tuple.
   """
-  # match the major.minor part of the version string, ignore the micro part
-  matcher = re.search(r"Python (\d+\.\d+)\.\d+", version_str)
-
-  if matcher:
-    return version_from_string(matcher.group(1))
+  if matcher := re.search(r"Python (\d+\.\d+)\.\d+", version_str):
+    return version_from_string(matcher[1])
   else:
     return None
 

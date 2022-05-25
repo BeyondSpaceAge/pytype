@@ -99,13 +99,12 @@ class CallTracer(vm.VirtualMachine):
       else:
         arg = self.ctx.convert.create_new_unknown(node, force=not use_defaults)
       args.append(arg)
-    kws = {}
-    for key in method.signature.kwonly_params:
-      if use_defaults and key in method.kw_defaults:
-        kws[key] = method.kw_defaults[key]
-      else:
-        kws[key] = self.ctx.convert.create_new_unknown(
-            node, force=not use_defaults)
+    kws = {
+        key:
+        method.kw_defaults[key] if use_defaults and key in method.kw_defaults
+        else self.ctx.convert.create_new_unknown(node, force=not use_defaults)
+        for key in method.signature.kwonly_params
+    }
     starargs = self.create_varargs(node) if method.has_varargs() else None
     starstarargs = self.create_kwargs(node) if method.has_kwargs() else None
     return node, function.Args(posargs=tuple(args),
@@ -492,11 +491,11 @@ class CallTracer(vm.VirtualMachine):
     self._generated_classes[nt.name] = nt
 
   def pytd_classes_for_unknowns(self):
-    classes = []
-    for name, val in self._unknowns.items():
-      if val in val.variable.Filter(self.ctx.exitpoint, strict=False):
-        classes.append(val.data.to_structural_def(self.ctx.exitpoint, name))
-    return classes
+    return [
+        val.data.to_structural_def(self.ctx.exitpoint, name)
+        for name, val in self._unknowns.items()
+        if val in val.variable.Filter(self.ctx.exitpoint, strict=False)
+    ]
 
   def pytd_for_types(self, defs):
     # If a variable is annotated, we'll always output that type.
@@ -597,8 +596,7 @@ class CallTracer(vm.VirtualMachine):
     for module_name in ("typing", "typing_extensions"):
       if module_name not in self.loaded_overlays:
         continue
-      overlay = self.loaded_overlays[module_name]
-      if overlay:
+      if overlay := self.loaded_overlays[module_name]:
         module = overlay.get_module(name)
         if name in module.members and module.members[name].data == var.data:
           return True
@@ -622,16 +620,13 @@ class CallTracer(vm.VirtualMachine):
         # We don't need to record call signatures that don't involve
         # unknowns - there's nothing to solve for.
         continue
-      if call_record.variable:
-        classes = args[0].data
-      else:
-        classes = [args[0].data]
+      classes = args[0].data if call_record.variable else [args[0].data]
       for cls in classes:
         if isinstance(cls, abstract.PyTDClass):
           class_to_records[cls].append(call_record)
     classes = []
     for cls, call_records in class_to_records.items():
-      full_name = cls.module + "." + cls.name if cls.module else cls.name
+      full_name = f"{cls.module}.{cls.name}" if cls.module else cls.name
       classes.append(pytd.Class(
           name=escape.pack_partial(full_name),
           metaclass=None,

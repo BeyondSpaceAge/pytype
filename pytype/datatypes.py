@@ -226,7 +226,7 @@ class AliasingDict(dict):
       root = self.uf.merge(alias, name)
       self[root] = dict.__getitem__(self, alias)
       if alias != root: dict.__delitem__(self, alias)
-    elif name in self:
+    else:
       root = self.uf.merge(alias, name)
       self[root] = dict.__getitem__(self, name)
       if name != root: dict.__delitem__(self, name)
@@ -353,10 +353,7 @@ class AliasingMonitorDict(AliasingDict, MonitorDict):
     """
     # Merge from dict
     for key, val in lam_dict.items():
-      if key in self:
-        self[key] = op(self[key], val, key)
-      else:
-        self[key] = val
+      self[key] = op(self[key], val, key) if key in self else val
     # Merge the aliasing info
     for cur_id in range(lam_dict.uf.latest_id):
       parent_id = lam_dict.uf.parent[cur_id]
@@ -393,7 +390,7 @@ class AliasingMonitorDict(AliasingDict, MonitorDict):
     elif alias in self:
       root = self.uf.merge(alias, name)
       self._copy_item(alias, root)
-    elif name in self:
+    else:
       root = self.uf.merge(alias, name)
       self._copy_item(name, root)
 
@@ -416,8 +413,7 @@ class ParserWrapper:
 
   def add_argument_group(self, *args, **kwargs):
     group = self.parser.add_argument_group(*args, **kwargs)
-    wrapped_group = self.__class__(group, actions=self.actions)
-    return wrapped_group
+    return self.__class__(group, actions=self.actions)
 
   def parse_args(self, *args, **kwargs):
     return self.parser.parse_args(*args, **kwargs)

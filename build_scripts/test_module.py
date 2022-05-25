@@ -78,7 +78,7 @@ class ResultReporter(object):
     self._stats_collector = stats_collector
 
   def _method_info(self, prefix, fq_method_name, group):
-    common_msg = "%s: %s" % (prefix, fq_method_name)
+    common_msg = f"{prefix}: {fq_method_name}"
     log_message = "%s\n%s" % (common_msg, group[0][1])
     stdout_message = log_message if self._options.print_st else common_msg
     return log_message, stdout_message
@@ -100,15 +100,15 @@ class ResultReporter(object):
         # object is used for each method.
         break
     if ret_val == 0:
-      log_msg = "PASS: %s" % fq_method_name
+      log_msg = f"PASS: {fq_method_name}"
       stdout_msg = log_msg if self._options.print_passes else None
     self._print_messages(stdout_msg, log_msg)
     return ret_val
 
   def report_class(self, class_name):
     self._stats_collector.add_class()
-    msg = "\nRunning test methods in class %s ..." % (
-        self._options.fq_mod_name + "." + class_name)
+    msg = ("\nRunning test methods in class %s ..." %
+           f"{self._options.fq_mod_name}.{class_name}")
     self._print_messages(msg, msg)
 
   def report_module(self):
@@ -158,13 +158,12 @@ def run_tests_in_class(class_object, options, reporter):
   """Run test methods in a class and return the number of failing methods."""
   if getattr(class_object, "__unittest_skip__", False):
     return 0
-  result = 0
   class_object.setUpClass()
   reporter.report_class(class_object.__name__)
-  for method_name, method_object in _get_members_list(class_object):
-    if callable(method_object) and method_name.startswith("test"):
-      result += run_test_method(method_name, class_object, options,
-                                reporter)
+  result = sum(
+      run_test_method(method_name, class_object, options, reporter)
+      for method_name, method_object in _get_members_list(class_object)
+      if callable(method_object) and method_name.startswith("test"))
   class_object.tearDownClass()
   return result
 
@@ -176,7 +175,7 @@ def run_tests_in_module(options, reporter):
       options.pytype_path,
       options.fq_mod_name.replace(".", os.path.sep) + ".py")
   if not os.path.exists(mod_abs_path):
-    msg = "ERROR: Module not found: %s." % options.fq_mod_name
+    msg = f"ERROR: Module not found: {options.fq_mod_name}."
     if options.output_file:
       options.output_file.write(msg + "\n")
       return 1

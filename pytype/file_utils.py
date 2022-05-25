@@ -26,7 +26,7 @@ def replace_extension(filename, new_extension):
   if new_extension.startswith("."):
     return name + new_extension
   else:
-    return name + "." + new_extension
+    return f"{name}.{new_extension}"
 
 
 def makedirs(path):

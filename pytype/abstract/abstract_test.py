@@ -646,7 +646,7 @@ class FunctionTest(AbstractTestBase):
     callself = self._ctx.program.NewVariable(
         [abstract.BaseValue("test", self._ctx)], [], self._ctx.root_node)
     bound = abstract.BoundFunction(callself, f)
-    callself_repr = lambda v: v.name + "foo"
+    callself_repr = lambda v: f"{v.name}foo"
     self.assertCountEqual(bound.repr_names(callself_repr), ["testfoo.f"])
 
   def test_bound_function_nested_repr(self):

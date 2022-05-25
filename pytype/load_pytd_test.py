@@ -656,7 +656,8 @@ class PickledPyiLoaderTest(test_base.UnitTest):
     for module in modules:
       serialize_ast.StoreAst(
           loader._modules[module.module_name].ast,
-          self._get_path(tempdir, module.file_name + ".pickled"))
+          self._get_path(tempdir, f"{module.file_name}.pickled"),
+      )
 
   def _load_pickled_module(self, tempdir, module):
     pickle_loader = load_pytd.PickledPyiLoader(config.Options.create(
@@ -671,7 +672,7 @@ class PickledPyiLoaderTest(test_base.UnitTest):
       module2 = _Module(module_name="module2", file_name="module2.pyi")
       loader, ast = self._load_ast(tempdir=d, module=module1)
       self._pickle_modules(loader, d, module1, module2)
-      pickled_ast_filename = self._get_path(d, module1.file_name + ".pickled")
+      pickled_ast_filename = self._get_path(d, f"{module1.file_name}.pickled")
       result = serialize_ast.StoreAst(ast, pickled_ast_filename)
       self.assertIsNone(result)
 

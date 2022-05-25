@@ -59,11 +59,8 @@ def _get_varargs_annotation_type(param_type):
   """Returns the type annotation for the varargs parameter."""
   # If varargs are annotated with type T in the function definition,
   # the annotation in the signature will be Tuple[T, ...].
-  if not isinstance(param_type, abstract.ParameterizedClass):
-    # Annotation in the signature could be just 'tuple' that corresponds to
-    # varargs with no annotation.
-    return None
-  return param_type.get_formal_type_parameter(abstract_utils.T)
+  return (param_type.get_formal_type_parameter(abstract_utils.T) if isinstance(
+      param_type, abstract.ParameterizedClass) else None)
 
 
 def _check_positional_parameter_annotations(method_signature, base_signature,
@@ -167,11 +164,10 @@ def _check_positional_parameters(method_signature, base_signature, is_subtype):
           "Too many positional-only parameters in overriding method.")
     elif base_param_pos < len(method_signature.param_names):
       method_param_name = method_signature.param_names[base_param_pos]
+    elif method_signature.varargs_name:
+      # Remaining parameters map to the varargs parameters.
+      break
     else:
-      # Positional-or-keyword cannot map to keyword-only.
-      if method_signature.varargs_name:
-        # Remaining parameters map to the varargs parameters.
-        break
       return SignatureError(
           SignatureErrorType.POSITIONAL_PARAMETER_COUNT_MISMATCH,
           "Not enough positional parameters in overriding method.")
@@ -188,8 +184,8 @@ def _check_positional_parameters(method_signature, base_signature, is_subtype):
   # Check mappings of remaining positional parameters of the overridding method
   # that don't map to any positional parameters of the overridden method.
   remaining_method_params = (
-      method_signature.param_names[len(base_signature.param_names):]
-      if not base_signature.varargs_name else [])
+      [] if base_signature.varargs_name else
+      method_signature.param_names[len(base_signature.param_names):])
   for method_param_name in remaining_method_params:
 
     # Keyword-only can map to remaining positional.

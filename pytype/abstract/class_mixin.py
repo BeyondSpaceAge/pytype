@@ -260,11 +260,10 @@ class Class(metaclass=mixin.MixinMeta):  # pylint: disable=undefined-variable
       self.overrides_bool = self.base_cls.overrides_bool
       return
     for cls in self.mro:
-      if isinstance(cls, Class):
-        if any(x in cls.get_own_attributes()
-               for x in ("__bool__", "__len__")):
-          self.overrides_bool = True
-          return
+      if isinstance(cls, Class) and any(x in cls.get_own_attributes()
+                                        for x in ("__bool__", "__len__")):
+        self.overrides_bool = True
+        return
     self.overrides_bool = False
 
   def get_own_abstract_methods(self):
@@ -295,21 +294,14 @@ class Class(metaclass=mixin.MixinMeta):  # pylint: disable=undefined-variable
     """Whether the class should be considered implicitly abstract."""
     # Protocols must be marked as abstract to get around the
     # [ignored-abstractmethod] check for interpreter classes.
-    if not _isinstance(self, "InterpreterClass"):
-      return False
-    # We check self._bases (immediate bases) instead of self.mro because our
-    # builtins and typing stubs are inconsistent about implementing abstract
-    # methods, and we don't want [not-instantiable] errors all over the place
-    # because a class has Protocol buried in its MRO.
-    for var in self._bases:
-      if any(base.full_name == "typing.Protocol" for base in var.data):
-        return True
-    return False
+    return (any(
+        any(base.full_name == "typing.Protocol"
+            for base in var.data) for var in self._bases) if _isinstance(
+                self, "InterpreterClass") else False)
 
   @property
   def annotations_dict(self):
-    ann = self.members.get("__annotations__")
-    if ann:
+    if ann := self.members.get("__annotations__"):
       return abstract_utils.get_atomic_value(ann)
     return None
 
@@ -340,12 +332,12 @@ class Class(metaclass=mixin.MixinMeta):  # pylint: disable=undefined-variable
     return ann and ann.annotated_locals.get(name)
 
   def _get_inherited_metaclass(self):
-    for base in self.mro[1:]:
-      if (isinstance(base, Class) and
-          base.cls != self.ctx.convert.unsolvable and
-          base.cls.full_name != "builtins.type"):
-        return base.cls
-    return None
+    return next(
+        (base.cls for base in self.mro[1:]
+         if (isinstance(base, Class) and base.cls != self.ctx.convert.unsolvable
+             and base.cls.full_name != "builtins.type")),
+        None,
+    )
 
   def call_metaclass_init(self, node):
     """Call the metaclass's __init__ method if it does anything interesting."""
@@ -417,7 +409,7 @@ class Class(metaclass=mixin.MixinMeta):  # pylint: disable=undefined-variable
     node, method = self.ctx.attribute_handler.get_attribute(
         node, value.data, method_name, value)
     if method:
-      call_repr = "%s.%s(..._)" % (self.name, method_name)
+      call_repr = f"{self.name}.{method_name}(..._)"
       log.debug("calling %s", call_repr)
       node, ret = function.call_function(self.ctx, node, method, args)
       log.debug("%s returned %r", call_repr, ret)

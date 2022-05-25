@@ -284,10 +284,9 @@ class _ParseVisitor(libcst.CSTVisitor):
         return
 
   def _has_containing_group(self, start_line, end_line=None):
-    for line_range, _ in self._get_containing_groups(start_line, end_line):
-      if not isinstance(line_range, (_Attribute, _Call)):
-        return True
-    return False
+    return any(
+        not isinstance(line_range, (_Attribute, _Call))
+        for line_range, _ in self._get_containing_groups(start_line, end_line))
 
   def _add_structured_comment_group(self, start_line, end_line, cls=_LineRange):
     """Adds an empty _StructuredComment group with the given line range."""
@@ -529,11 +528,7 @@ class Director:
       log.warning("File parsing failed. Comment directives and some variable "
                   "annotations will be ignored.")
       return
-    if code:
-      opcode_lines = _OpcodeLines.from_code(code)
-    else:
-      opcode_lines = None
-
+    opcode_lines = _OpcodeLines.from_code(code) if code else None
     for line_range, group in visitor.structured_comment_groups.items():
       for comment in group:
         if comment.tool == "type":
@@ -684,9 +679,7 @@ class Director:
       allowed_lines = opcode_lines.load_attr_lines
     elif error_class == "bad-return-type":
       allowed_lines = opcode_lines.return_lines
-    elif error_class == "bad-yield-annotation":
-      allowed_lines = opcode_lines.make_function_lines
-    elif error_class == "invalid-annotation":
+    elif error_class in {"bad-yield-annotation", "invalid-annotation"}:
       allowed_lines = opcode_lines.make_function_lines
     elif error_class == "not-supported-yet":
       allowed_lines = opcode_lines.store_lines

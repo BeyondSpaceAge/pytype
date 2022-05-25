@@ -42,14 +42,13 @@ class BaseVisitor:
         self._ast.FunctionDef: ["body", "args", "returns"],
         self._ast.Assign: ["targets", "value"],
     }
-    ks = node_children.get(node.__class__, None)
-    if ks:
+    if ks := node_children.get(node.__class__, None):
       return [(k, getattr(node, k)) for k in ks]
     else:
       return self._ast.iter_fields(node)
 
   def _call_visitor(self, node):
-    method = "visit_" + node.__class__.__name__
+    method = f"visit_{node.__class__.__name__}"
     visitor = getattr(self, method, self.generic_visit)
     return visitor(node)
 
@@ -59,14 +58,12 @@ class BaseVisitor:
 
   def enter(self, node):
     """Does a pre-order traversal of the AST."""
-    method = "enter_" + node.__class__.__name__
-    visitor = getattr(self, method, None)
-    if visitor:
+    method = f"enter_{node.__class__.__name__}"
+    if visitor := getattr(self, method, None):
       return visitor(node)
 
   def leave(self, node):
     """Called after visit() to do any cleanup that enter() needs."""
-    method = "leave_" + node.__class__.__name__
-    visitor = getattr(self, method, None)
-    if visitor:
+    method = f"leave_{node.__class__.__name__}"
+    if visitor := getattr(self, method, None):
       visitor(node)

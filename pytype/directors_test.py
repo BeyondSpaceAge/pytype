@@ -370,8 +370,7 @@ class DirectorTest(DirectorTestCase):
   def test_huge_string(self):
     # Tests that the director doesn't choke on this huge, repetitive file.
     src = ["x = ("]
-    for i in range(2000):
-      src.append(f"    'string{i}'")
+    src.extend(f"    'string{i}'" for i in range(2000))
     src.append(")")
     self._create("\n".join(src))
 
@@ -478,10 +477,7 @@ class LineNumbersTest(DirectorTestCase):
       ]  # type: dict
     """)
     # The line number of STORE_NAME v changes between versions.
-    if self.python_version >= (3, 8):
-      lineno = 2
-    else:
-      lineno = 3
+    lineno = 2 if self.python_version >= (3, 8) else 3
     self.assertEqual({lineno: "dict"}, self._director.type_comments)
 
   def test_type_comment_with_trailing_comma(self):

@@ -74,7 +74,7 @@ class BaseValue(utils.ContextWeakrefMixin):
 
   @property
   def full_name(self):
-    return (self.module + "." if self.module else "") + self.name
+    return (f"{self.module}." if self.module else "") + self.name
 
   def __repr__(self):
     return self.name
@@ -169,18 +169,17 @@ class BaseValue(utils.ContextWeakrefMixin):
   def get_special_attribute(self, unused_node, name, unused_valself):
     """Fetch a special attribute (e.g., __get__, __iter__)."""
     if name == "__class__":
-      if self.full_name == "typing.Protocol":
-        # Protocol.__class__ is a _ProtocolMeta class that inherits from
-        # abc.ABCMeta. Changing the definition of Protocol in typing.pytd to
-        # include this metaclass causes a bunch of weird breakages, so we
-        # instead return the metaclass when type() or __class__ is accessed on
-        # Protocol. For simplicity, we pretend the metaclass is ABCMeta rather
-        # than a subclass.
-        abc = self.ctx.vm.import_module("abc", "abc", 0).get_module("ABCMeta")
-        abc.load_lazy_attribute("ABCMeta")
-        return abc.members["ABCMeta"]
-      else:
+      if self.full_name != "typing.Protocol":
         return self.cls.to_variable(self.ctx.root_node)
+      # Protocol.__class__ is a _ProtocolMeta class that inherits from
+      # abc.ABCMeta. Changing the definition of Protocol in typing.pytd to
+      # include this metaclass causes a bunch of weird breakages, so we
+      # instead return the metaclass when type() or __class__ is accessed on
+      # Protocol. For simplicity, we pretend the metaclass is ABCMeta rather
+      # than a subclass.
+      abc = self.ctx.vm.import_module("abc", "abc", 0).get_module("ABCMeta")
+      abc.load_lazy_attribute("ABCMeta")
+      return abc.members["ABCMeta"]
     return None
 
   def get_own_new(self, node, value):
@@ -432,15 +431,15 @@ def _compute_template(val: Any):
     # All type parameters in the base classes should appear in
     # `typing.Generic`
     for base in bases:
-      if base.full_name != "typing.Generic":
-        if _isinstance(base, "ParameterizedClass"):
-          for item in base.template:
-            param = base.formal_type_parameters.get(item.name)
-            if _isinstance(base, "TypeParameter"):
-              t = param.with_module(val.full_name)
-              if t not in template:
-                raise abstract_utils.GenericTypeError(
-                    val, "Generic should contain all the type variables")
+      if base.full_name != "typing.Generic" and _isinstance(
+          base, "ParameterizedClass"):
+        for item in base.template:
+          param = base.formal_type_parameters.get(item.name)
+          if _isinstance(base, "TypeParameter"):
+            t = param.with_module(val.full_name)
+            if t not in template:
+              raise abstract_utils.GenericTypeError(
+                  val, "Generic should contain all the type variables")
   else:
     # Compute template parameters according to C3
     seqs = []
@@ -456,6 +455,6 @@ def _compute_template(val: Any):
       template.extend(mro.MergeSequences(seqs))
     except ValueError as e:
       raise abstract_utils.GenericTypeError(
-          val, "Illegal type parameter order in class %s" % val.name) from e
+          val, f"Illegal type parameter order in class {val.name}") from e
 
   return template

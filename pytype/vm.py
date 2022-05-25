@@ -195,9 +195,9 @@ class VirtualMachine:
     if log.isEnabledFor(logging.INFO):
       vm_utils.log_opcode(op, state, self.frame, len(self.frames))
     # dispatch
-    bytecode_fn = getattr(self, "byte_%s" % op.name, None)
+    bytecode_fn = getattr(self, f"byte_{op.name}", None)
     if bytecode_fn is None:
-      raise VirtualMachineError("Unknown opcode: %s" % op.name)
+      raise VirtualMachineError(f"Unknown opcode: {op.name}")
     state = bytecode_fn(state, op)
     if state.why in ("reraise", "NoReturn"):
       state = state.set_why("exception")
@@ -230,10 +230,7 @@ class VirtualMachine:
       op = None
       for op in block:
         state = self.run_instruction(op, state)
-        # Check if we have to carry forward the return state from an except
-        # block to the END_FINALLY opcode.
-        new_why = finally_tracker.process(op, state, self.ctx)
-        if new_why:
+        if new_why := finally_tracker.process(op, state, self.ctx):
           state = state.set_why(new_why)
         if state.why:
           # we can't process this block any further
@@ -255,13 +252,9 @@ class VirtualMachine:
         frame.states[op.next] = state.merge_into(frame.states.get(op.next))
     vm_utils.update_excluded_types(node, self.ctx)
     self.pop_frame(frame)
-    if not return_nodes:
-      # Happens if the function never returns. (E.g. an infinite loop)
-      assert not frame.return_variable.bindings
-      frame.return_variable.AddBinding(self.ctx.convert.unsolvable, [], node)
-    else:
-      node = self.ctx.join_cfg_nodes(return_nodes)
+    if return_nodes:
       if not can_return:
+        node = self.ctx.join_cfg_nodes(return_nodes)
         assert not frame.return_variable.bindings
         # We purposely don't check NoReturn against this function's
         # annotated return type. Raising an error in an unimplemented function
@@ -269,6 +262,10 @@ class VirtualMachine:
         # common pattern.
         self._set_frame_return(node, frame,
                                self.ctx.convert.no_return.to_variable(node))
+    else:
+      # Happens if the function never returns. (E.g. an infinite loop)
+      assert not frame.return_variable.bindings
+      frame.return_variable.AddBinding(self.ctx.convert.unsolvable, [], node)
     return node, frame.return_variable
 
   def push_frame(self, frame):
@@ -278,10 +275,7 @@ class VirtualMachine:
   def pop_frame(self, frame):
     popped_frame = self.frames.pop()
     assert popped_frame == frame
-    if self.frames:
-      self.frame = self.frames[-1]
-    else:
-      self.frame = None
+    self.frame = self.frames[-1] if self.frames else None
 
   def _call(
       self, state, obj, method_name, args
@@ -626,8 +620,7 @@ class VirtualMachine:
     if name == "__undefined__":
       # For values that don't exist. (Unlike None, which is a valid object)
       return state, self.ctx.convert.empty.to_variable(self.ctx.root_node)
-    special = self.load_special_builtin(name)
-    if special:
+    if special := self.load_special_builtin(name):
       return state, special.to_variable(state.node)
     else:
       return self.load_from(state, self.frame.f_builtins, name)
@@ -638,10 +631,9 @@ class VirtualMachine:
     return state.push(const)
 
   def _load_annotation(self, node, name):
-    annots = abstract_utils.get_annotations_dict(self.frame.f_locals.members)
-    if annots:
-      typ = annots.get_type(node, name)
-      if typ:
+    if annots := abstract_utils.get_annotations_dict(
+        self.frame.f_locals.members):
+      if typ := annots.get_type(node, name):
         _, ret = self.ctx.annotation_utils.init_annotation(node, name, typ)
         return ret
     raise KeyError(name)
@@ -686,10 +678,7 @@ class VirtualMachine:
 
   def _store_value(self, state, name, value, local):
     """Store 'value' under 'name'."""
-    if local:
-      target = self.frame.f_locals
-    else:
-      target = self.frame.f_globals
+    target = self.frame.f_locals if local else self.frame.f_globals
     node = self.ctx.attribute_handler.set_attribute(state.node, target, name,
                                                     value)
     if target is self.frame.f_globals and self.late_annotations:
@@ -892,14 +881,11 @@ class VirtualMachine:
     if not obj.bindings:
       log.info("Ignoring setattr on %r", obj)
       return state
-    nodes = []
-    for val in obj.Filter(state.node):
-      # TODO(b/172045608): Check whether val.data is a descriptor (i.e. has
-      # "__set__")
-      nodes.append(
-          self.ctx.attribute_handler.set_attribute(state.node, val.data, attr,
-                                                   value))
-    if nodes:
+    if nodes := [
+        self.ctx.attribute_handler.set_attribute(state.node, val.data, attr,
+                                                 value)
+        for val in obj.Filter(state.node)
+    ]:
       return state.change_cfg_node(self.ctx.join_cfg_nodes(nodes))
     else:
       return state
@@ -923,12 +909,9 @@ class VirtualMachine:
 
   def import_module(self, name, full_name, level):
     """Import a module and return the module object or None."""
-    if self.ctx.options.strict_import:
-      # Do not import new modules if we aren't in an IMPORT statement.
-      # The exception is if we have an implicit "package" module (e.g.
-      # `import a.b.c` adds `a.b` to the list of instantiable modules.)
-      if not (self._importing or self.ctx.loader.has_module_prefix(full_name)):
-        return None
+    if (self.ctx.options.strict_import and not self._importing
+        and not self.ctx.loader.has_module_prefix(full_name)):
+      return None
     try:
       module = self._import_module(name, level)
       # Since we have explicitly imported full_name, add it to the prefix list.
@@ -973,8 +956,7 @@ class VirtualMachine:
     if name:
       if level <= 0:
         assert level in [-1, 0]
-        overlay = self._maybe_load_overlay(name)
-        if overlay:
+        if overlay := self._maybe_load_overlay(name):
           return overlay
         if level == -1 and self.ctx.loader.base_module:
           # Python 2 tries relative imports first.
@@ -988,9 +970,8 @@ class VirtualMachine:
         base = self.ctx.loader.import_relative(level)
         if base is None:
           return None
-        full_name = base.name + "." + name
-        overlay = self._maybe_load_overlay(full_name)
-        if overlay:
+        full_name = f"{base.name}.{name}"
+        if overlay := self._maybe_load_overlay(full_name):
           return overlay
         ast = self.ctx.loader.import_name(full_name)
     else:
@@ -1015,8 +996,7 @@ class VirtualMachine:
 
     func = self.frame.func.data
     if func.is_classmethod or func.name.rsplit(".")[-1] == "__new__":
-      is_cls = not set(var.data) - set(self.frame.first_arg.data)
-      return is_cls
+      return not set(var.data) - set(self.frame.first_arg.data)
     return False
 
   def expand_bool_result(self, node, left, right, name, maybe_predicate):
@@ -1250,7 +1230,7 @@ class VirtualMachine:
     else:
       details = vm_utils.get_name_error_details(state, name, self.ctx)
       if details:
-        details = "Note: " + details.to_error_message()
+        details = f"Note: {details.to_error_message()}"
       self.ctx.errorlog.name_error(self.frames, name, details=details)
       return self.ctx.convert.unsolvable
 
@@ -1433,7 +1413,7 @@ class VirtualMachine:
           ret.AddBinding(self.ctx.convert.bool_values[val], {b1, b2},
                          state.node)
     if leftover_x.bindings:
-      op = "__%s__" % op_name.lower()
+      op = f"__{op_name.lower()}__"
       # If we do not already have a return value, raise any errors caught by the
       # overloaded comparison method.
       report_errors = op_not_eq and not bool(ret.bindings) and not reported
@@ -1523,7 +1503,7 @@ class VirtualMachine:
         if not isinstance(e, abstract.AMBIGUOUS_OR_EMPTY):
           if isinstance(e, abstract.Class):
             mro_seqs = [e.mro] if isinstance(e, abstract.Class) else []
-            msg = "%s does not inherit from BaseException" % e.name
+            msg = f"{e.name} does not inherit from BaseException"
           else:
             mro_seqs = []
             msg = "Not a class"
@@ -1596,17 +1576,11 @@ class VirtualMachine:
     return self._compare_op(state, op.arg)
 
   def byte_IS_OP(self, state, op):
-    if op.arg:
-      op_arg = slots.CMP_IS_NOT
-    else:
-      op_arg = slots.CMP_IS
+    op_arg = slots.CMP_IS_NOT if op.arg else slots.CMP_IS
     return self._compare_op(state, op_arg)
 
   def byte_CONTAINS_OP(self, state, op):
-    if op.arg:
-      op_arg = slots.CMP_NOT_IN
-    else:
-      op_arg = slots.CMP_IN
+    op_arg = slots.CMP_NOT_IN if op.arg else slots.CMP_IN
     return self._compare_op(state, op_arg)
 
   def byte_LOAD_ATTR(self, state, op):
@@ -1670,12 +1644,10 @@ class VirtualMachine:
         else:
           for k, v in cur_annotations_dict.items():
             # pylint: disable=unsupported-assignment-operation,unsupported-membership-test
-            if k in annotations_dict:
-              annotations_dict[k] = abstract_utils.Local.merge(
-                  node, op, annotations_dict[k], v)
-            else:
-              annotations_dict[k] = v
-            # pylint: enable=unsupported-assignment-operation,unsupported-membership-test
+            annotations_dict[k] = (abstract_utils.Local.merge(
+                node, op, annotations_dict[k], v)
+                                   if k in annotations_dict else v)
+                    # pylint: enable=unsupported-assignment-operation,unsupported-membership-test
     return node, annotations_dict, check_type
 
   def byte_STORE_ATTR(self, state, op):
@@ -1723,14 +1695,12 @@ class VirtualMachine:
     state, (val, obj, subscr) = state.popn(3)
     state = state.forward_cfg_node()
     # Check whether obj is the __annotations__ dict.
-    if abstract_utils.match_atomic_value(obj, abstract.AnnotationsDict):
-      if all(abstract_utils.is_ellipsis(v) for v in val.data):
-        # '...' is an experimental "inferred type": see b/213607272.
-        pass
-      else:
-        if abstract_utils.match_atomic_value(val, abstract.FinalAnnotation):
-          val = val.data[0].annotation.to_variable(state.node)
-        self._record_annotation_dict_store(state, obj, subscr, val, op)
+    if abstract_utils.match_atomic_value(
+        obj, abstract.AnnotationsDict) and not all(
+            abstract_utils.is_ellipsis(v) for v in val.data):
+      if abstract_utils.match_atomic_value(val, abstract.FinalAnnotation):
+        val = val.data[0].annotation.to_variable(state.node)
+      self._record_annotation_dict_store(state, obj, subscr, val, op)
     state = self.store_subscr(state, obj, subscr, val)
     return state
 
@@ -1784,7 +1754,7 @@ class VirtualMachine:
 
   def _restructure_tuple(self, state, tup, pre, post):
     """Collapse the middle part of a tuple into a List variable."""
-    before = tup[0:pre]
+    before = tup[:pre]
     if post > 0:
       after = tup[-post:]
       rest = tup[pre:-post]
@@ -1816,8 +1786,7 @@ class VirtualMachine:
     has_slurp = n_after > -1
     count = n_before + n_after + 1
     for b in abstract_utils.expand_type_parameter_instances(seq.bindings):
-      tup = self._get_literal_sequence(b.data)
-      if tup:
+      if tup := self._get_literal_sequence(b.data):
         if has_slurp and len(tup) >= count:
           options.append(self._restructure_tuple(state, tup, n_before, n_after))
           continue
@@ -2078,19 +2047,16 @@ class VirtualMachine:
 
   def is_setup_except(self, op):
     """Check whether op is equivalent to a SETUP_EXCEPT opcode."""
-    # In Python 3.8+, exception setup is done using the SETUP_FINALLY opcode.
-    # Before that, there was a separate SETUP_EXCEPT opcode.
-    if self.ctx.python_version >= (3, 8):
-      if isinstance(op, opcodes.SETUP_FINALLY):
-        for i, block in enumerate(self.frame.f_code.order):
-          if block.id == op.arg:
-            if not any(isinstance(o, opcodes.BEGIN_FINALLY)
-                       for o in self.frame.f_code.order[i-1]):
-              return True
-            break
-      return False
-    else:
+    if self.ctx.python_version < (3, 8):
       return isinstance(op, opcodes.SETUP_EXCEPT)
+    if isinstance(op, opcodes.SETUP_FINALLY):
+      for i, block in enumerate(self.frame.f_code.order):
+        if block.id == op.arg:
+          if not any(isinstance(o, opcodes.BEGIN_FINALLY)
+                     for o in self.frame.f_code.order[i-1]):
+            return True
+          break
+    return False
 
   def byte_SETUP_FINALLY(self, state, op):
     """Implements the SETUP_FINALLY opcode."""
@@ -2140,9 +2106,8 @@ class VirtualMachine:
     state, _ = state.popn(argc)
     if argc == 0 and state.exception:
       return state.set_why("reraise")
-    else:
-      state = state.set_exception()
-      return state.set_why("exception")
+    state = state.set_exception()
+    return state.set_why("exception")
 
   def byte_POP_EXCEPT(self, state, op):  # Python 3 only
     # We don't push the special except-handler block, so we don't need to

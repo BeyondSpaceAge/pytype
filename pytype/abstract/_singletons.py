@@ -83,7 +83,7 @@ class Unknown(_base.BaseValue):
     if name in self.members:
       return self.members[name]
     new = self.ctx.convert.create_new_unknown(
-        self.ctx.root_node, action="getattr_" + self.name + ":" + name)
+        self.ctx.root_node, action=f"getattr_{self.name}:{name}")
     # We store this at the root node, even though we only just created this.
     # From the analyzing point of view, we don't know when the "real" version
     # of this attribute (the one that's not an unknown) gets created, hence
@@ -96,7 +96,7 @@ class Unknown(_base.BaseValue):
 
   def call(self, node, _, args, alias_map=None):
     ret = self.ctx.convert.create_new_unknown(
-        node, source=self.owner, action="call:" + self.name)
+        node, source=self.owner, action=f"call:{self.name}")
     self._calls.append((args.posargs, args.namedargs, ret))
     return node, ret
 
@@ -240,10 +240,7 @@ class Unsolvable(Singleton):
 
   def get_special_attribute(self, node, name, _):
     # Overrides Singleton.get_special_attributes.
-    if name in self.IGNORED_ATTRIBUTES:
-      return None
-    else:
-      return self.to_variable(node)
+    return None if name in self.IGNORED_ATTRIBUTES else self.to_variable(node)
 
   def argcount(self, _):
     return 0

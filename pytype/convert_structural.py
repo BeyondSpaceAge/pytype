@@ -85,7 +85,7 @@ class TypeSolver:
     subst = {p.type_param: pytd.AnythingType() for p in complete.template}
     formula = matcher.match_Class_against_Class(partial, complete, subst)
     if formula is booleq.FALSE:
-      raise FlawedQuery("%s can never be %s" % (partial.name, complete.name))
+      raise FlawedQuery(f"{partial.name} can never be {complete.name}")
     solver.always_true(formula)
 
   def match_call_record(self, matcher, solver, call_record, complete):
@@ -143,17 +143,15 @@ class TypeSolver:
         protocol_classes_and_aliases.add(alias.type.cls)
 
     # solve equations from protocols first
-    for protocol in protocol_classes_and_aliases:
-      for unknown in unknown_classes:
-        self.match_unknown_against_protocol(
-            factory_protocols, solver_protocols, unknown, protocol)
+    for protocol, unknown in itertools.product(protocol_classes_and_aliases, unknown_classes):
+      self.match_unknown_against_protocol(
+          factory_protocols, solver_protocols, unknown, protocol)
 
     # also solve partial equations
-    for complete in complete_classes.union(self.builtins.classes):
-      for partial in partial_classes:
-        if escape.unpack_partial(partial.name) == complete.name:
-          self.match_partial_against_complete(
-              factory_partial, solver_partial, partial, complete)
+    for complete, partial in itertools.product(complete_classes.union(self.builtins.classes), partial_classes):
+      if escape.unpack_partial(partial.name) == complete.name:
+        self.match_partial_against_complete(
+            factory_partial, solver_partial, partial, complete)
 
     partial_functions = set()
     complete_functions = set()
@@ -237,7 +235,7 @@ def convert_string_type(string_type, unknown, mapping, global_lookup, depth=0):
   if cls and cls.template:
     parameters = []
     for t in cls.template:
-      type_param_name = unknown + "." + string_type + "." + t.name
+      type_param_name = f"{unknown}.{string_type}.{t.name}"
       if type_param_name in mapping and depth < MAX_DEPTH:
         string_type_params = mapping[type_param_name]
         parameters.append(convert_string_type_list(
@@ -296,9 +294,12 @@ def log_info_mapping(mapping):
     for unknown, possible_types in sorted(mapping.items()):
       assert isinstance(possible_types, (set, frozenset))
       if len(possible_types) > cutoff:
-        log.debug("%s can be   %s, ... (total: %d)", unknown,
-                  ", ".join(sorted(possible_types)[0:cutoff]),
-                  len(possible_types))
+        log.debug(
+            "%s can be   %s, ... (total: %d)",
+            unknown,
+            ", ".join(sorted(possible_types)[:cutoff]),
+            len(possible_types),
+        )
       else:
         log.debug("%s can be %s", unknown,
                   ", ".join(sorted(possible_types)))

@@ -61,7 +61,7 @@ def main():
   try:
     options = config.Options(sys.argv[1:], command_line=True)
   except utils.UsageError as e:
-    print(str(e), file=sys.stderr)
+    print(e, file=sys.stderr)
     sys.exit(1)
 
   if options.show_config:

@@ -193,7 +193,7 @@ def add_pop_block_targets(bytecode, python_version):
     if isinstance(op, opcodes.POP_BLOCK):
       assert block_stack, "POP_BLOCK without block."
       op.block_target = block_stack[-1].target
-      block_stack = block_stack[0:-1]
+      block_stack = block_stack[:-1]
     elif isinstance(op, opcodes.RAISE_VARARGS):
       # Make "raise" statements jump to the innermost exception handler.
       # (If there's no exception handler, do nothing.)
@@ -208,14 +208,14 @@ def add_pop_block_targets(bytecode, python_version):
         if isinstance(b, opcodes.SETUP_LOOP):
           op.block_target = b.target
           assert b.target != op
-          todo.append((op.block_target, block_stack[0:i]))
+          todo.append((op.block_target, block_stack[:i]))
           break
     elif isinstance(op, setup_except_op):
       # Exceptions pop the block, so store the previous block stack.
       todo.append((op.target, block_stack))
       block_stack += (op,)
     elif op.pushes_block():
-      assert op.target, "%s without target" % op.name
+      assert op.target, f"{op.name} without target"
       # We push the entire opcode onto the block stack, for better debugging.
       block_stack += (op,)
     elif op.does_jump() and op.target:
@@ -412,6 +412,4 @@ def merge_annotations(code, annotations):
 def process_code(code, python_version):
   # [binary opcodes] -> [pyc.Opcode]
   ops = pyc.visit(code, DisCodeVisitor())
-  # pyc.load_marshal.CodeType -> blocks.OrderedCode
-  ordered = pyc.visit(ops, OrderCodeVisitor(python_version))
-  return ordered
+  return pyc.visit(ops, OrderCodeVisitor(python_version))
