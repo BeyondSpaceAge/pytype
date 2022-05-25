@@ -45,7 +45,7 @@ class _RegistryMeta(type):
 def _deserialize(typ, payload):
   """Construct a Metric from a typename and payload loaded from json."""
   if typ not in _METRIC_TYPES:
-    raise TypeError("Could not decode class %s" % typ)
+    raise TypeError(f"Could not decode class {typ}")
   cls = _METRIC_TYPES[typ]
   out = cls(None)
   out.__dict__.update(payload)
@@ -76,7 +76,7 @@ _enabled = False  # True iff metrics should be collected.
 
 def _validate_metric_name(name):
   if _METRIC_NAME_RE.match(name) is None:
-    raise ValueError("Illegal metric name: %s" % name)
+    raise ValueError(f"Illegal metric name: {name}")
 
 
 def _prepare_for_test(enabled=True):
@@ -105,10 +105,7 @@ def get_metric(name, constructor, *args, **kwargs):
     invoking constructor(name, *args, **kwargs).
   """
   metric = _registered_metrics.get(name)
-  if metric is not None:
-    return metric
-  else:
-    return constructor(name, *args, **kwargs)
+  return metric if metric is not None else constructor(name, *args, **kwargs)
 
 
 def get_report():
@@ -125,10 +122,10 @@ def merge_from_file(metrics_file):
     if existing is None:
       _validate_metric_name(metric.name)
       _registered_metrics[metric.name] = metric
-    else:
-      if type(metric) != type(existing):  # pylint: disable=unidiomatic-typecheck
-        raise TypeError("Cannot merge metrics of different types.")
+    elif type(metric) == type(existing):
       existing._merge(metric)  # pylint: disable=protected-access
+    else:  # pylint: disable=unidiomatic-typecheck
+      raise TypeError("Cannot merge metrics of different types.")
 
 
 class Metric(metaclass=_RegistryMeta):
@@ -143,7 +140,7 @@ class Metric(metaclass=_RegistryMeta):
       return
     _validate_metric_name(name)
     if name in _registered_metrics:
-      raise ValueError("Metric %s has already been defined." % name)
+      raise ValueError(f"Metric {name} has already been defined.")
     self._name = name
     _registered_metrics[name] = self
 
@@ -160,7 +157,7 @@ class Metric(metaclass=_RegistryMeta):
     raise NotImplementedError
 
   def __str__(self):
-    return "%s: %s" % (self._name, self._summary())
+    return f"{self._name}: {self._summary()}"
 
 
 class Counter(Metric):
@@ -227,7 +224,7 @@ class ReentrantStopWatch(Metric):
     self._time += other._time  # pylint: disable=protected-access
 
   def _summary(self):
-    return "time spend below this StopWatch: %s" % self._time
+    return f"time spend below this StopWatch: {self._time}"
 
 
 class MapCounter(Metric):

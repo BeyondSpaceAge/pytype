@@ -56,10 +56,10 @@ class Function(_instance_base.SimpleValue):
     if not f:
       # Should not happen but does in some contrived test cases.
       return None
-    for name, v in zip(f.f_code.co_freevars, f.cells):
-      if v == var:
-        return name
-    return None
+    return next(
+        (name for name, v in zip(f.f_code.co_freevars, f.cells) if v == var),
+        None,
+    )
 
   def match_args(self, node, args, alias_map=None, match_all_views=False):
     """Check whether the given arguments can match the function signature."""
@@ -134,7 +134,7 @@ class Function(_instance_base.SimpleValue):
         else:
           # Add the name of the caller if possible.
           if hasattr(self, "parent"):
-            e.name = "%s.%s" % (self.parent.name, e.name)
+            e.name = f"{self.parent.name}.{e.name}"
           if match_all_views or self.ctx.options.strict_parameter_checks:
             raise e
           error = e
@@ -153,7 +153,7 @@ class Function(_instance_base.SimpleValue):
     raise NotImplementedError(self.__class__.__name__)
 
   def __repr__(self):
-    return self.full_name + "(...)"
+    return f"{self.full_name}(...)"
 
   def _extract_defaults(self, defaults_var):
     """Extracts defaults from a Variable, used by set_function_defaults.
@@ -164,22 +164,25 @@ class Function(_instance_base.SimpleValue):
     Returns:
       A tuple of default values, if one could be extracted, or None otherwise.
     """
-    # Case 1: All given data are tuple constants. Use the longest one.
     if all(isinstance(d, _instances.Tuple) for d in defaults_var.data):
       return max((d.pyval for d in defaults_var.data), key=len)
-    else:
       # Case 2: Data are entirely Tuple Instances, Unknown or Unsolvable. Make
       # all parameters except self/cls optional.
       # Case 3: Data is anything else. Same as Case 2, but emit a warning.
-      if not (all(isinstance(d, (
-          _instance_base.Instance, _singletons.Unknown, _singletons.Unsolvable))
-                  for d in defaults_var.data) and
-              all(d.full_name == "builtins.tuple"
-                  for d in defaults_var.data
-                  if isinstance(d, _instance_base.Instance))):
-        self.ctx.errorlog.bad_function_defaults(self.ctx.vm.frames, self.name)
-      # The ambiguous case is handled by the subclass.
-      return None
+    if not all(
+        isinstance(
+            d,
+            (
+                _instance_base.Instance,
+                _singletons.Unknown,
+                _singletons.Unsolvable,
+            ),
+        ) for d in defaults_var.data) or any(
+            d.full_name != "builtins.tuple" for d in defaults_var.data
+            if isinstance(d, _instance_base.Instance)):
+      self.ctx.errorlog.bad_function_defaults(self.ctx.vm.frames, self.name)
+    # The ambiguous case is handled by the subclass.
+    return None
 
   def set_function_defaults(self, node, defaults_var):
     raise NotImplementedError(self.__class__.__name__)
@@ -239,7 +242,7 @@ class NativeFunction(Function):
           (not args.starargs and not args.starstarargs)):
         # If we have too many arguments, or starargs and starstarargs are both
         # empty, then we can be certain of a WrongArgCount error.
-        argnames = tuple("_" + str(i) for i in range(expected_argcount))
+        argnames = tuple(f"_{str(i)}" for i in range(expected_argcount))
         sig = function.Signature(
             self.name, argnames, 0, None, set(), None, {}, {}, {})
         raise function.WrongArgCount(sig, args, self.ctx)
@@ -275,18 +278,17 @@ class BoundFunction(_base.BaseValue):
     self.replace_self_annot = None
     inst = abstract_utils.get_atomic_value(
         self._callself, default=self.ctx.convert.unsolvable)
-    if self._should_replace_self_annot():
-      if (isinstance(inst.cls, class_mixin.Class) and
-          inst.cls.full_name != "builtins.type"):
-        for cls in inst.cls.mro:
-          if isinstance(cls, _classes.ParameterizedClass):
-            base_cls = cls.base_cls
-          else:
-            base_cls = cls
-          if isinstance(base_cls, class_mixin.Class) and base_cls.template:
-            self.replace_self_annot = (
-                _classes.ParameterizedClass.get_generic_instance_type(base_cls))
-            break
+    if self._should_replace_self_annot() and (isinstance(
+        inst.cls, class_mixin.Class) and inst.cls.full_name != "builtins.type"):
+      for cls in inst.cls.mro:
+        if isinstance(cls, _classes.ParameterizedClass):
+          base_cls = cls.base_cls
+        else:
+          base_cls = cls
+        if isinstance(base_cls, class_mixin.Class) and base_cls.template:
+          self.replace_self_annot = (
+              _classes.ParameterizedClass.get_generic_instance_type(base_cls))
+          break
     if isinstance(inst, _instance_base.SimpleValue):
       self.alias_map = inst.instance_type_parameters.uf
     elif isinstance(inst, _typing.TypeParameterInstance):
@@ -344,7 +346,7 @@ class BoundFunction(_base.BaseValue):
           # match_args will try to prepend the parent's name to the error name.
           # Overwrite it with _callself instead, which may be more exact.
           _, _, e.name = e.name.rpartition(".")
-        e.name = "%s.%s" % (self._callself.data[0].name, e.name)
+        e.name = f"{self._callself.data[0].name}.{e.name}"
       raise
     finally:
       if abstract_utils.func_name_is_class_init(self.name):
@@ -394,10 +396,10 @@ class BoundFunction(_base.BaseValue):
     underlying = self.underlying.name
     if underlying.count(".") > 0:
       underlying = underlying.split(".", 1)[-1]
-    return [callself + "." + underlying for callself in callself_names]
+    return [f"{callself}.{underlying}" for callself in callself_names]
 
   def __repr__(self):
-    return self.repr_names()[0] + "(...)"
+    return f"{self.repr_names()[0]}(...)"
 
 
 class BoundInterpreterFunction(BoundFunction):

@@ -36,12 +36,16 @@ def parse_args():
   allowed_modes = (TEST_MODE, RELEASE_MODE)
   parser = argparse.ArgumentParser()
   parser.add_argument(
-      "-m", "--mode", type=str, default="%s" % TEST_MODE,
+      "-m",
+      "--mode",
+      type=str,
+      default=f"{TEST_MODE}",
       help="Specify if the release should be uploaded to pypi or testpyi. Can "
-           "take a value of %s or %s" % allowed_modes)
+      "take a value of %s or %s" % allowed_modes,
+  )
   args = parser.parse_args()
   if args.mode not in allowed_modes:
-    sys.exit("Invalid --mode option. Should be one of %s" % allowed_modes)
+    sys.exit(f"Invalid --mode option. Should be one of {allowed_modes}")
   return args
 
 
@@ -64,8 +68,9 @@ def check_if_version_is_ok():
   """Prompt the user to confirm that the version in __version__.py is OK."""
   sys.path.append(build_utils.PYTYPE_SRC_ROOT)
   version_mod = __import__("pytype.__version__", fromlist=["pytype"])
-  response = input("Making a release with version %s; Continue? " %
-                   getattr(version_mod, "__version__"))
+  response = input(
+      f'Making a release with version {getattr(version_mod, "__version__")}; Continue? '
+  )
   if response not in ["y", "Y", "yes", "YES"]:
     sys.exit("Aborting release.")
 
@@ -75,7 +80,7 @@ def upload_package(package_path, test=False):
   if test:
     twine_cmd.extend(["--repository", "testpypi"])
   twine_cmd.append(os.path.join(package_path, "*"))
-  print("Uploading: %s" % twine_cmd)
+  print(f"Uploading: {twine_cmd}")
   returncode, stdout = build_utils.run_cmd(twine_cmd)
   if returncode != 0:
     raise ReleaseError("Package upload failed:\n%s" % stdout)

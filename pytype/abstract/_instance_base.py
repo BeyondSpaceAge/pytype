@@ -115,12 +115,7 @@ class SimpleValue(_base.BaseValue):
   def argcount(self, node):
     node, var = self.ctx.attribute_handler.get_attribute(
         node, self, "__call__", self.to_binding(node))
-    if var and var.bindings:
-      return min(v.argcount(node) for v in var.data)
-    else:
-      # It doesn't matter what we return here, since any attempt to call this
-      # value will lead to a not-callable error anyways.
-      return 0
+    return min(v.argcount(node) for v in var.data) if var and var.bindings else 0
 
   def __repr__(self):
     return "<%s [%r]>" % (self.name, self.cls)
@@ -171,10 +166,7 @@ class SimpleValue(_base.BaseValue):
           if value.data in seen else value.data.get_type_key(seen)
           for value in var.bindings)
       key.add((name, subkey))
-    if key:
-      type_key = frozenset(key)
-    else:
-      type_key = super().get_type_key()
+    type_key = frozenset(key) if key else super().get_type_key()
     self._cached_type_key = (
         (self.members.changestamp, self.instance_type_parameters.changestamp),
         type_key)

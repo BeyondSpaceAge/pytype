@@ -47,10 +47,7 @@ class AnnotationUtils(utils.ContextWeakrefMixin):
     if (vals is None or
         any(isinstance(v, abstract.AMBIGUOUS) for v in vals) or
         all(isinstance(v, abstract.Empty) for v in vals)):
-      if instantiate_unbound:
-        vals = annot.instantiate(node).data
-      else:
-        vals = [annot]
+      vals = annot.instantiate(node).data if instantiate_unbound else [annot]
     return self.ctx.convert.merge_classes(vals)
 
   def sub_one_annotation(self, node, annot, substs, instantiate_unbound=True):
@@ -80,7 +77,7 @@ class AnnotationUtils(utils.ContextWeakrefMixin):
               s = pytd_utils.Print(self._get_type_parameter_subst(
                   node, t, substs, instantiate_unbound).get_instance_type(node))
               param_strings.append(s)
-            expr = "%s[%s]" % (cur.expr, ", ".join(param_strings))
+            expr = f'{cur.expr}[{", ".join(param_strings)}]'
             late_annot = abstract.LateAnnotation(expr, cur.stack, cur.ctx)
             late_annotations[cur] = late_annot
           done.append(late_annotations[cur])
@@ -89,9 +86,7 @@ class AnnotationUtils(utils.ContextWeakrefMixin):
           stack.append((cur, keys))
           stack.extend((val, None) for val in vals)
         else:
-          inner_types = []
-          for k in inner_type_keys:
-            inner_types.append((k, done.pop()))
+          inner_types = [(k, done.pop()) for k in inner_type_keys]
           done_annot = cur.replace(inner_types)
           if cur in late_annotations:
             # If we've generated a LateAnnotation placeholder for cur's
@@ -225,11 +220,10 @@ class AnnotationUtils(utils.ContextWeakrefMixin):
 
   def convert_function_type_annotation(self, name, typ):
     visible = typ.data
-    if len(visible) > 1:
-      self.ctx.errorlog.ambiguous_annotation(self.ctx.vm.frames, visible, name)
-      return None
-    else:
+    if len(visible) <= 1:
       return visible[0]
+    self.ctx.errorlog.ambiguous_annotation(self.ctx.vm.frames, visible, name)
+    return None
 
   def convert_function_annotations(self, node, raw_annotations):
     """Convert raw annotations to a {name: annotation} dict."""
@@ -283,8 +277,7 @@ class AnnotationUtils(utils.ContextWeakrefMixin):
     frame = self.ctx.vm.frame
     substs = frame.substs
     if frame.func and isinstance(frame.func.data, abstract.BoundFunction):
-      self_var = frame.first_arg
-      if self_var:
+      if self_var := frame.first_arg:
         # self_var is an instance of (a subclass of) the class on which
         # frame.func is defined. We walk self_var's class's MRO to find the
         # defining class and grab its type parameter substitutions.
@@ -377,9 +370,10 @@ class AnnotationUtils(utils.ContextWeakrefMixin):
     if typ.formal and allowed_type_params is not None:
       allowed_type_params = (allowed_type_params |
                              self.get_callable_type_parameter_names(typ))
-      illegal_params = [x.name for x in self.get_type_parameters(typ)
-                        if x.name not in allowed_type_params]
-      if illegal_params:
+      if illegal_params := [
+          x.name for x in self.get_type_parameters(typ)
+          if x.name not in allowed_type_params
+      ]:
         details = "TypeVar(s) %s not in scope" % ", ".join(
             repr(p) for p in utils.unique_list(illegal_params))
         if self.ctx.vm.frame.func:
@@ -413,10 +407,9 @@ class AnnotationUtils(utils.ContextWeakrefMixin):
     # how the function will be used, so if the first arg is self or cls we
     # make it optional.  The logic is somewhat convoluted because we don't
     # want to count the skipped argument in an error message.
-    if len(args) != expected:
-      if expected and names[0] in ["self", "cls"]:
-        expected -= 1
-        names = names[1:]
+    if len(args) != expected and expected and names[0] in ["self", "cls"]:
+      expected -= 1
+      names = names[1:]
 
     if len(args) != expected:
       self.ctx.errorlog.invalid_function_type_comment(

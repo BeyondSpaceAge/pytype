@@ -76,8 +76,7 @@ class Dataclass(classgen.Decorator):
       assert typ
       if match_classvar(typ):
         continue
-      initvar_typ = self._handle_initvar(node, cls, name, typ, orig)
-      if initvar_typ:
+      if initvar_typ := self._handle_initvar(node, cls, name, typ, orig):
         typ = initvar_typ
         init = True
         kind = classgen.AttributeKinds.INITVAR

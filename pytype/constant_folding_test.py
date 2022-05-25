@@ -55,14 +55,12 @@ class TestFolding(test_base.UnitTest):
   def _fold(self, code):
     code = constant_folding.optimize(code)
     folded = self._find_load_folded(code)
-    actual = [show_op(op) for op in folded]
-    return actual
+    return [show_op(op) for op in folded]
 
   def _process(self, src):
     src = fmt(src)
     code = self._compile(src)
-    actual = self._fold(code)
-    return actual
+    return self._fold(code)
 
   @test_utils.skipFromPy((3, 9), "Constant lists get optimised in 3.9")
   def test_basic(self):
@@ -249,9 +247,9 @@ class TypeBuilderTest(TypeBuilderTestBase):
     return val
 
   def _is_primitive(self, val, cls):
-    return (isinstance(val, abstract.Instance) and
-            isinstance(val.cls, abstract.PyTDClass) and
-            val.cls.pytd_cls.name == "builtins." + cls)
+    return (isinstance(val, abstract.Instance)
+            and isinstance(val.cls, abstract.PyTDClass)
+            and val.cls.pytd_cls.name == f"builtins.{cls}")
 
   def test_prim(self):
     val = self._convert(("prim", str))

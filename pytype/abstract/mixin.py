@@ -17,21 +17,21 @@ class MixinMeta(type):
   __mixin_overloads__: Dict[str, Type[Any]]
   _HAS_DYNAMIC_ATTRIBUTES = True
 
-  def __init__(cls, name, superclasses, *args, **kwargs):
-    super(MixinMeta, cls).__init__(name, superclasses, *args, **kwargs)
+  def __init__(self, name, superclasses, *args, **kwargs):
+    super(MixinMeta, self).__init__(name, superclasses, *args, **kwargs)
     for sup in superclasses:
       if hasattr(sup, "overloads"):
         for method in sup.overloads:
-          if method not in cls.__dict__:
-            setattr(cls, method, getattr(sup, method))
+          if method not in self.__dict__:
+            setattr(self, method, getattr(sup, method))
             # Record the fact that we have set a method on the class, to do
             # superclass lookups.
-            if "__mixin_overloads__" in cls.__dict__:
-              cls.__mixin_overloads__[method] = sup
+            if "__mixin_overloads__" in self.__dict__:
+              self.__mixin_overloads__[method] = sup
             else:
-              setattr(cls, "__mixin_overloads__", {method: sup})
+              setattr(self, "__mixin_overloads__", {method: sup})
 
-  def super(cls, method):
+  def super(self, method):
     """Imitate super() in a mix-in.
 
     This method is a substitute for
@@ -53,8 +53,8 @@ class MixinMeta(type):
     for supercls in type(method.__self__).__mro__:
       # Fetch from __dict__ rather than using getattr() because we only want
       # to consider methods defined on supercls itself (not on a base).
-      if ("__mixin_overloads__" in supercls.__dict__ and
-          supercls.__mixin_overloads__.get(method.__name__) is cls):
+      if ("__mixin_overloads__" in supercls.__dict__
+          and supercls.__mixin_overloads__.get(method.__name__) is self):
         method_cls = supercls
         break
     return getattr(super(method_cls, method.__self__), method.__name__)
@@ -122,7 +122,7 @@ class HasSlots(metaclass=MixinMeta):
 
   def set_slot(self, name, method):
     """Add a new slot to this value."""
-    assert name not in self._slots, "slot %s already occupied" % name
+    assert name not in self._slots, f"slot {name} already occupied"
     # For getting a slot value, we don't need a ParameterizedClass's type
     # parameters, and evaluating them in the middle of constructing the class
     # can trigger a recursion error, so use only the base class.

@@ -111,10 +111,10 @@ def infer_types(src,
   snapshotter.take_snapshot("analyze:infer_types:post")
   ast = ctx.vm.compute_types(defs)
   ast = ctx.loader.resolve_ast(ast)
-  if ctx.vm.has_unknown_wildcard_imports or any(
-      a in defs for a in abstract_utils.DYNAMIC_ATTRIBUTE_MARKERS):
-    if "__getattr__" not in ast:
-      ast = pytd_utils.Concat(ast, ctx.loader.get_default_ast())
+  if (ctx.vm.has_unknown_wildcard_imports
+      or any(a in defs for a in abstract_utils.DYNAMIC_ATTRIBUTE_MARKERS)
+      ) and "__getattr__" not in ast:
+    ast = pytd_utils.Concat(ast, ctx.loader.get_default_ast())
   # If merged with other if statement, triggers a ValueError: Unresolved class
   # when attempts to load from the protocols file
   if options.protocols:

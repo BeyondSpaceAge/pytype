@@ -29,11 +29,7 @@ class AbstractMethod(abstract.PyTDFunction):
     self.match_args(node, args)
 
     # Since we have only 1 argument, it's easy enough to extract.
-    if args.posargs:
-      func_var = args.posargs[0]
-    else:
-      func_var = args.namedargs["function"]
-
+    func_var = args.posargs[0] if args.posargs else args.namedargs["function"]
     for func in func_var.data:
       if isinstance(func, abstract.FUNCTION_TYPES):
         func.is_abstract = True

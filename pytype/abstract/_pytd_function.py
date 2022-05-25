@@ -55,7 +55,7 @@ class PyTDFunction(_function_base.Function):
     """
     assert not pyval or not pyval_name  # there's never a reason to pass both
     if not pyval:
-      pyval_name = module + "." + (pyval_name or name)
+      pyval_name = f"{module}." + ((pyval_name or name))
       if module not in ("builtins", "typing"):
         pyval = ctx.loader.import_name(module).Lookup(pyval_name)
       else:
@@ -76,12 +76,11 @@ class PyTDFunction(_function_base.Function):
     self._signature_cache = {}
     self._return_types = {sig.pytd_sig.return_type for sig in signatures}
     for sig in signatures:
-      for param in sig.pytd_sig.params:
-        if param.mutated_type is not None:
-          self._has_mutable = True
-          break
-      else:
-        self._has_mutable = False
+      self._has_mutable = next(
+          (True
+           for param in sig.pytd_sig.params if param.mutated_type is not None),
+          False,
+      )
     for sig in signatures:
       sig.function = self
       sig.name = self.name
@@ -116,22 +115,23 @@ class PyTDFunction(_function_base.Function):
 
   def _log_args(self, arg_values_list, level=0, logged=None):
     """Log the argument values."""
-    if log.isEnabledFor(logging.DEBUG):
-      if logged is None:
-        logged = set()
-      for i, arg_values in enumerate(arg_values_list):
-        arg_values = list(arg_values)
-        if level:
-          if arg_values and any(v.data not in logged for v in arg_values):
-            log.debug("%s%s:", "  " * level, arg_values[0].variable.id)
-        else:
-          log.debug("Arg %d", i)
-        for value in arg_values:
-          if value.data not in logged:
-            log.debug("%s%s [var %d]", "  " * (level + 1), value.data,
-                      value.variable.id)
-            self._log_args(value.data.unique_parameter_values(), level + 2,
-                           logged | {value.data})
+    if not log.isEnabledFor(logging.DEBUG):
+      return
+    if logged is None:
+      logged = set()
+    for i, arg_values in enumerate(arg_values_list):
+      arg_values = list(arg_values)
+      if level:
+        if arg_values and any(v.data not in logged for v in arg_values):
+          log.debug("%s%s:", "  " * level, arg_values[0].variable.id)
+      else:
+        log.debug("Arg %d", i)
+      for value in arg_values:
+        if value.data not in logged:
+          log.debug("%s%s [var %d]", "  " * (level + 1), value.data,
+                    value.variable.id)
+          self._log_args(value.data.unique_parameter_values(), level + 2,
+                         logged | {value.data})
 
   def call(self, node, func, args, alias_map=None):
     # TODO(b/159052609): We should be passing function signatures to simplify.
@@ -273,12 +273,13 @@ class PyTDFunction(_function_base.Function):
     mutations = []
     for v in values:
       if isinstance(v, _instance_base.SimpleValue):
-        for name in v.instance_type_parameters:
-          mutations.append(
-              function.Mutation(
-                  v, name,
-                  self.ctx.convert.create_new_unknown(
-                      node, action="type_param_" + name)))
+        mutations.extend(
+            function.Mutation(
+                v,
+                name,
+                self.ctx.convert.create_new_unknown(
+                    node, action=f"type_param_{name}"),
+            ) for name in v.instance_type_parameters)
     return mutations
 
   def _can_match_multiple(self, args, view, variable):
@@ -292,15 +293,12 @@ class PyTDFunction(_function_base.Function):
       for var in view:
         if any(_isinstance(v, "AMBIGUOUS_OR_EMPTY") for v in var.data):
           return True
-    else:
-      if any(_isinstance(view[arg].data, "AMBIGUOUS_OR_EMPTY")
+    elif any(_isinstance(view[arg].data, "AMBIGUOUS_OR_EMPTY")
              for arg in args.get_variables()):
-        return True
-    for arg in (args.starargs, args.starstarargs):
-      # An opaque *args or **kwargs behaves like an unknown.
-      if arg and not isinstance(arg, mixin.PythonConstant):
-        return True
-    return False
+      return True
+    return any(
+        arg and not isinstance(arg, mixin.PythonConstant)
+        for arg in (args.starargs, args.starstarargs))
 
   def _match_view(self, node, args, view, alias_map=None):
     if self._can_match_multiple(args, view, False):
@@ -377,11 +375,8 @@ class PyTDFunction(_function_base.Function):
     options = []
     for sig, _, _ in signatures:
       t = sig.pytd_sig.return_type
-      params = pytd_utils.GetTypeParameters(t)
-      if params:
-        replacement = {}
-        for param_type in params:
-          replacement[param_type] = pytd.AnythingType()
+      if params := pytd_utils.GetTypeParameters(t):
+        replacement = {param_type: pytd.AnythingType() for param_type in params}
         replace_visitor = visitors.ReplaceTypeParameters(replacement)
         t = t.Visit(replace_visitor)
       options.append(t)
@@ -440,7 +435,7 @@ class PyTDFunction(_function_base.Function):
         if e > error:
           # Add the name of the caller if possible.
           if hasattr(self, "parent"):
-            e.name = "%s.%s" % (self.parent.name, e.name)
+            e.name = f"{self.parent.name}.{e.name}"
           error = e
       else:
         matched_signatures.append((sig, arg_dict, subst))
@@ -527,11 +522,11 @@ class PyTDSignature(utils.ContextWeakrefMixin):
     """
     formal_args = [(p.name, self.signature.annotations[p.name])
                    for p in self.pytd_sig.params]
-    arg_dict = {}
+    arg_dict = {
+        name: view[arg]
+        for name, arg in zip(self.signature.param_names, args.posargs)
+    }
 
-    # positional args
-    for name, arg in zip(self.signature.param_names, args.posargs):
-      arg_dict[name] = view[arg]
     num_expected_posargs = len(self.signature.param_names)
     if len(args.posargs) > num_expected_posargs and not self.pytd_sig.starargs:
       raise function.WrongArgCount(self.signature, args, self.ctx)
@@ -552,10 +547,10 @@ class PyTDSignature(utils.ContextWeakrefMixin):
       arg_dict[name] = view[arg]
     kws = set(args.namedargs)
     extra_kwargs = kws - {p.name for p in self.pytd_sig.params}
-    if extra_kwargs and not self.pytd_sig.starstarargs:
-      if function.has_visible_namedarg(node, args, extra_kwargs):
-        raise function.WrongKeywordArgs(
-            self.signature, args, self.ctx, extra_kwargs)
+    if (extra_kwargs and not self.pytd_sig.starstarargs
+        and function.has_visible_namedarg(node, args, extra_kwargs)):
+      raise function.WrongKeywordArgs(
+          self.signature, args, self.ctx, extra_kwargs)
     posonly_kwargs = kws & posonly_names
     # If a function has a **kwargs parameter, then keyword arguments with the
     # same name as a positional-only argument are allowed, e.g.:
@@ -568,10 +563,9 @@ class PyTDSignature(utils.ContextWeakrefMixin):
     kwargs_type = self.signature.annotations.get(self.signature.kwargs_name)
     if isinstance(kwargs_type, _classes.ParameterizedClass):
       # We sort the kwargs so that matching always happens in the same order.
-      for name in sorted(extra_kwargs):
-        formal_args.append(
-            (name, kwargs_type.get_formal_type_parameter(abstract_utils.V)))
-
+      formal_args.extend(
+          (name, kwargs_type.get_formal_type_parameter(abstract_utils.V))
+          for name in sorted(extra_kwargs))
     # packed args
     packed_args = [("starargs", self.signature.varargs_name),
                    ("starstarargs", self.signature.kwargs_name)]
@@ -765,10 +759,7 @@ class PyTDSignature(utils.ContextWeakrefMixin):
       arg = actual.data
       if formal.mutated_type is None:
         continue
-      if variable:
-        args = actual.data
-      else:
-        args = [actual.data]
+      args = actual.data if variable else [actual.data]
       for arg in args:
         if isinstance(arg, _instance_base.SimpleValue):
           try:
@@ -797,10 +788,9 @@ class PyTDSignature(utils.ContextWeakrefMixin):
       # to be mutated.
       for ret in retvar.data:
         if ret.cls.full_name != "builtins.type":
-          for t in ret.cls.template:
-            if t.full_name in subst:
-              mutations.append(
-                  function.Mutation(ret, t.full_name, subst[t.full_name]))
+          mutations.extend(
+              function.Mutation(ret, t.full_name, subst[t.full_name])
+              for t in ret.cls.template if t.full_name in subst)
     return mutations
 
   def get_positional_names(self):

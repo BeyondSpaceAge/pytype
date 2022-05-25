@@ -229,8 +229,7 @@ class _Stack:
 
   def build(self, python_type, op):
     """Build a folded type."""
-    collection = self.fold_args(op.arg, op)
-    if collection:
+    if collection := self.fold_args(op.arg, op):
       typename = python_type.__name__
       typ = (typename, collection.types)
       try:

@@ -721,11 +721,10 @@ class EnumMetaGetItem(abstract.SimpleFunction):
   def _get_member_by_name(self, enum, name):
     if isinstance(enum, EnumInstance):
       return enum.members.get(name)
-    else:
-      assert isinstance(enum, abstract.PyTDClass)
-      if name in enum:
-        enum.load_lazy_attribute(name)
-        return enum.members[name]
+    assert isinstance(enum, abstract.PyTDClass)
+    if name in enum:
+      enum.load_lazy_attribute(name)
+      return enum.members[name]
 
   def call(self, node, _, args, alias_map=None):
     _, argmap = self.match_and_map_args(node, args, alias_map)
@@ -745,10 +744,8 @@ class EnumMetaGetItem(abstract.SimpleFunction):
       name = abstract_utils.get_atomic_python_constant(name_var, str)
     except abstract_utils.ConversionError:
       return node, cls.instantiate(node)
-    inst = self._get_member_by_name(cls, name)
-    if inst:
+    if inst := self._get_member_by_name(cls, name):
       return node, inst
-    else:
-      self.ctx.errorlog.attribute_error(self.ctx.vm.frames, cls_var.bindings[0],
-                                        name)
-      return node, self.ctx.new_unsolvable(node)
+    self.ctx.errorlog.attribute_error(self.ctx.vm.frames, cls_var.bindings[0],
+                                      name)
+    return node, self.ctx.new_unsolvable(node)

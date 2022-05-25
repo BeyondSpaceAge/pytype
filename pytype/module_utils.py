@@ -100,7 +100,7 @@ def get_absolute_name(prefix, relative_name):
   ndots = len(relative_name) - len(name)
   if ndots > len(path):
     return None
-  prefix = "".join([p + "." for p in path[:len(path) + 1 - ndots]])
+  prefix = "".join([f"{p}." for p in path[:len(path) + 1 - ndots]])
   return prefix + name
 
 

@@ -14,8 +14,7 @@ def _read_imports_map(options_info_path, open_function):
   imports_multimap = collections.defaultdict(set)
   with open_function(options_info_path) as fi:
     for line in fi:
-      line = line.strip()
-      if line:
+      if line := line.strip():
         short_path, path = line.split(" ", 1)
         short_path, _ = os.path.splitext(short_path)  # drop extension
         imports_multimap[short_path].add(path)
@@ -35,9 +34,7 @@ def _validate_imports_map(imports_map):
   """
   errors = []
   for short_path, paths in imports_map.items():
-    for path in paths:
-      if not os.path.exists(path):
-        errors.append((short_path, path))
+    errors.extend((short_path, path) for path in paths if not os.path.exists(path))
   if errors:
     log.error("Invalid imports_map entries (checking from root dir: %s)",
               os.path.abspath("."))
@@ -71,10 +68,9 @@ def build_imports_map(options_info_path, open_function=open):
   imports_map = {short_path: os.path.abspath(paths[0])
                  for short_path, paths in imports_multimap.items()}
 
-  errors = _validate_imports_map(imports_multimap)
-  if errors:
+  if errors := _validate_imports_map(imports_multimap):
     msg = "Invalid imports_map: %s\nBad entries:\n" % options_info_path
-    msg += "\n".join("  %s -> %s" % (k, v) for k, v in errors)
+    msg += "\n".join(f"  {k} -> {v}" for k, v in errors)
     raise ValueError(msg)
 
   # Add the potential directory nodes for adding "__init__", because some build

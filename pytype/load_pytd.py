@@ -135,8 +135,7 @@ class _ModuleMap:
     return self._modules.get(key)
 
   def get_existing_ast(self, module_name: str) -> Optional[_AST]:
-    existing = self._modules.get(module_name)
-    if existing:
+    if existing := self._modules.get(module_name):
       if existing.needs_unpickling():
         self._unpickle_module(existing)
       return existing.ast
@@ -153,23 +152,29 @@ class _ModuleMap:
 
   def get_resolved_modules(self) -> Dict[str, ResolvedModule]:
     """Get a {name: ResolvedModule} map of all resolved modules."""
-    resolved_modules = {}
-    for name, mod in self._modules.items():
-      if not mod.has_unresolved_pointers:
-        resolved_modules[name] = ResolvedModule(
-            mod.module_name, mod.filename, mod.ast)
-    return resolved_modules
+    return {
+        name: ResolvedModule(mod.module_name, mod.filename, mod.ast)
+        for name, mod in self._modules.items() if not mod.has_unresolved_pointers
+    }
 
   def _base_modules(self):
     bltins, typing = builtin_stubs.GetBuiltinsAndTyping(
         parser.PyiOptions.from_toplevel_options(self.options))
     return {
         "builtins":
-        Module("builtins", self.PREFIX + "builtins", bltins,
-               has_unresolved_pointers=False),
+        Module(
+            "builtins",
+            f"{self.PREFIX}builtins",
+            bltins,
+            has_unresolved_pointers=False,
+        ),
         "typing":
-        Module("typing", self.PREFIX + "typing", typing,
-               has_unresolved_pointers=False)
+        Module(
+            "typing",
+            f"{self.PREFIX}typing",
+            typing,
+            has_unresolved_pointers=False,
+        ),
     }
 
   def _unpickle_module(self, module):
@@ -267,14 +272,13 @@ class _PathFinder:
 
   def get_pyi_path(self, path: str) -> Optional[str]:
     """Get a pyi file from path if it exists."""
-    if self.options.imports_map is not None:
-      if path in self.options.imports_map:
-        full_path = self.options.imports_map[path]
-      else:
-        return None
-    else:
-      full_path = path + ".pyi"
+    if self.options.imports_map is None:
+      full_path = f"{path}.pyi"
 
+    elif path in self.options.imports_map:
+      full_path = self.options.imports_map[path]
+    else:
+      return None
     # We have /dev/null entries in the import_map - os.path.isfile() returns
     # False for those. However, we *do* want to load them. Hence exists / isdir.
     if os.path.exists(full_path) and not os.path.isdir(full_path):
@@ -415,8 +419,7 @@ class Loader:
                           open_function=self.options.open_function)
 
   def _resolve_external_and_local_types(self, mod_ast, lookup_ast=None):
-    dependencies = self._resolver.collect_dependencies(mod_ast)
-    if dependencies:
+    if dependencies := self._resolver.collect_dependencies(mod_ast):
       lookup_ast = lookup_ast or mod_ast
       self._load_ast_dependencies(dependencies, lookup_ast)
       mod_ast = self._resolve_external_types(
@@ -433,9 +436,7 @@ class Loader:
     # TODO(mdemello): Should we do this in _ModuleMap.__setitem__? Also, should
     # we only invalidate concatenated if existing = None?
     self._modules.invalidate_concatenated()
-    # Check for an existing ast first
-    existing = self._modules.get_existing_ast(module_name)
-    if existing:
+    if existing := self._modules.get_existing_ast(module_name):
       return existing
     if not mod_ast:
       with self.options.open_function(filename, "r") as f:
@@ -492,8 +493,7 @@ class Loader:
     prefix = name
     while "." in prefix:
       prefix, _ = prefix.rsplit(".", 1)
-      ast = self._import_module_by_name(prefix)
-      if ast:
+      if ast := self._import_module_by_name(prefix):
         return ast
     return None
 
@@ -513,20 +513,17 @@ class Loader:
         dep_ast = self._import_module_by_name(name)
         if dep_ast is None:
           dep_ast = self._try_import_prefix(name)
-          if dep_ast or f"{ast_name}.{name}" in lookup_ast:
-            # If any prefix is a valid module, then we'll assume that we're
-            # importing a nested class. If name is in lookup_ast, then it is a
-            # local reference and not an import at all.
-            continue
-          else:
+          if not dep_ast and f"{ast_name}.{name}" not in lookup_ast:
             self._path_finder.log_module_not_found(name)
             try:
               pytd.LookupItemRecursive(lookup_ast, name)
             except KeyError as e:
               raise BadDependencyError(
                   "Can't find pyi for %r" % name, ast_name) from e
-            # This is a dotted local reference, not an external reference.
-            continue
+          # If any prefix is a valid module, then we'll assume that we're
+          # importing a nested class. If name is in lookup_ast, then it is a
+          # local reference and not an import at all.
+          continue
       # If `name` is a package, try to load any base names not defined in
       # __init__ as submodules.
       if not self._modules[name].is_package() or "__getattr__" in dep_ast:
@@ -534,18 +531,18 @@ class Loader:
       for base_name in dependencies[dep_name]:
         if base_name == "*":
           continue
-        full_name = "%s.%s" % (name, base_name)
+        full_name = f"{name}.{base_name}"
         # Check whether full_name is a submodule based on whether it is
         # defined in the __init__ file.
         attr = dep_ast.Get(full_name)
         # 'from . import submodule as submodule' produces
         # Alias(submodule, NamedType(submodule)).
-        if attr is None or (
-            isinstance(attr, pytd.Alias) and attr.name == attr.type.name):
-          if not self._import_module_by_name(full_name):
-            # Add logging to make debugging easier but otherwise ignore the
-            # result - resolve_external_types will raise a better error.
-            self._path_finder.log_module_not_found(full_name)
+        if (attr is None or
+            (isinstance(attr, pytd.Alias) and attr.name == attr.type.name)
+            ) and not self._import_module_by_name(full_name):
+          # Add logging to make debugging easier but otherwise ignore the
+          # result - resolve_external_types will raise a better error.
+          self._path_finder.log_module_not_found(full_name)
 
   def _resolve_external_types(self, mod_ast, lookup_ast=None):
     module_map = self._modules.get_module_map()
@@ -614,7 +611,7 @@ class Loader:
     if self.options.module_name is None:
       raise ValueError("Attempting relative import in non-package.")
     components = self.options.module_name.split(".")
-    sub_module = ".".join(components[0:-level])
+    sub_module = ".".join(components[:-level])
     return self.import_name(sub_module)
 
   def import_name(self, module_name: str) -> _AST:
@@ -671,10 +668,11 @@ class Loader:
 
   def _load_typeshed_builtin(self, subdir, module_name):
     """Load a pyi from typeshed."""
-    loaded = typeshed.parse_type_definition(
-        subdir, module_name,
-        parser.PyiOptions.from_toplevel_options(self.options))
-    if loaded:
+    if loaded := typeshed.parse_type_definition(
+        subdir,
+        module_name,
+        parser.PyiOptions.from_toplevel_options(self.options),
+    ):
       filename, mod_ast = loaded
       return self.load_file(filename=self.PREFIX + filename,
                             module_name=module_name, mod_ast=mod_ast)
@@ -690,18 +688,12 @@ class Loader:
       The parsed file, instance of pytd.TypeDeclUnit, or None if we
       the module wasn't found.
     """
-    existing = self._modules.get_existing_ast(module_name)
-    if existing:
+    if existing := self._modules.get_existing_ast(module_name):
       return existing
 
     assert os.sep not in module_name, (os.sep, module_name)
     log.debug("Trying to import %r", module_name)
-    # Builtin modules (but not standard library modules!) take precedence
-    # over modules in PYTHONPATH.
-    # Note: while typeshed no longer has a builtins subdir, the pytd
-    # tree still does, and order is important here.
-    mod = self._load_builtin("builtins", module_name)
-    if mod:
+    if mod := self._load_builtin("builtins", module_name):
       return mod
 
     file_ast, path = self._import_file(module_name)
@@ -716,14 +708,11 @@ class Loader:
       else:
         return file_ast
 
-    # The standard library is (typically) towards the end of PYTHONPATH.
-    mod = self._load_builtin("stdlib", module_name)
-    if mod:
+    if mod := self._load_builtin("stdlib", module_name):
       return mod
 
-    # Third party modules from typeshed (typically site-packages) come last.
-    mod = self._load_builtin("third_party", module_name, third_party_only=True)
-    if mod:
+    if mod := self._load_builtin(
+        "third_party", module_name, third_party_only=True):
       return mod
 
     # Now return the default module if we have found nothing better.
@@ -787,8 +776,7 @@ class PickledPyiLoader(Loader):
     """Load (or retrieve from cache) a module and resolve its dependencies."""
     if not pytd_utils.IsPickle(filename):
       return super().load_file(module_name, filename, mod_ast)
-    existing = self._modules.get_existing_ast(module_name)
-    if existing:
+    if existing := self._modules.get_existing_ast(module_name):
       return existing
     loaded_ast = pytd_utils.LoadPickle(
         filename, open_function=self.options.open_function)

@@ -72,10 +72,10 @@ def main():
 
   if "." in options.main_module:
     pkg, modname = options.main_module.rsplit(".", 1)
-    import_stmt = "from %s import %s" % (pkg, modname)
+    import_stmt = f"from {pkg} import {modname}"
   else:
     modname = options.main_module
-    import_stmt = "import %s" % options.main_module
+    import_stmt = f"import {options.main_module}"
 
   with open(options.exe_path, "w") as target:
     text = EXE_TEMPLATE.format(

@@ -70,10 +70,7 @@ class AbstractAttributeHandler(utils.ContextWeakrefMixin):
         if attr is not None:
           ret.PasteVariable(attr, node2)
           nodes.append(node2)
-      if ret.bindings:
-        return self.ctx.join_cfg_nodes(nodes), ret
-      else:
-        return node, None
+      return (self.ctx.join_cfg_nodes(nodes), ret) if ret.bindings else (node, None)
     elif isinstance(obj, special_builtins.SuperInstance):
       return self._get_attribute_from_super_instance(node, obj, name, valself)
     elif isinstance(obj, special_builtins.Super):
@@ -95,11 +92,10 @@ class AbstractAttributeHandler(utils.ContextWeakrefMixin):
         else:
           results.append(ret)
           nodes.append(node2)
-      if nodes:
-        node = self.ctx.join_cfg_nodes(nodes)
-        return node, self.ctx.join_variables(node, results)
-      else:
+      if not nodes:
         return node, self.ctx.new_unsolvable(node)
+      node = self.ctx.join_cfg_nodes(nodes)
+      return node, self.ctx.join_variables(node, results)
     elif isinstance(obj, abstract.Empty):
       return node, None
     else:
@@ -153,9 +149,10 @@ class AbstractAttributeHandler(utils.ContextWeakrefMixin):
         obj.members[name] = value.AssignToNewVariable(node)
       return node
     elif isinstance(obj, abstract.TypeParameterInstance):
-      nodes = []
-      for v in obj.instance.get_instance_type_parameter(obj.name).data:
-        nodes.append(self.set_attribute(node, v, name, value))
+      nodes = [
+          self.set_attribute(node, v, name, value)
+          for v in obj.instance.get_instance_type_parameter(obj.name).data
+      ]
       return self.ctx.join_cfg_nodes(nodes) if nodes else node
     elif isinstance(obj, abstract.Union):
       for option in obj.options:
@@ -401,8 +398,7 @@ class AbstractAttributeHandler(utils.ContextWeakrefMixin):
     # Check if the attribute is declared via a variable annotation.
     typ = None
     if isinstance(base, abstract.InterpreterClass):
-      annots = abstract_utils.get_annotations_dict(base.members)
-      if annots:
+      if annots := abstract_utils.get_annotations_dict(base.members):
         typ = annots.get_type(node, name)
         if typ and typ.formal and valself:
           # The attribute contains a class-scoped type parameter, so we need to
@@ -483,27 +479,27 @@ class AbstractAttributeHandler(utils.ContextWeakrefMixin):
   def _get_member(self, node, obj, name, valself):
     """Get a member of an object."""
     if isinstance(obj, mixin.LazyMembers):
-      if not valself:
+      if (not valself
+          or not isinstance(valself.data, abstract.ParameterizedClass)
+          and not isinstance(valself.data, abstract.Instance)):
         subst = None
       elif isinstance(valself.data, abstract.ParameterizedClass):
         subst = {f"{valself.data.full_name}.{k}": v.instantiate(node)
                  for k, v in valself.data.formal_type_parameters.items()}
-      elif isinstance(valself.data, abstract.Instance):
+      else:
         # We need to rebind the parameter values at the root because that's the
         # node at which load_lazy_attribute() converts pyvals.
         subst = {k: self.ctx.program.NewVariable(v.data, [], self.ctx.root_node)
                  for k, v in valself.data.instance_type_parameters.items()}
-      else:
-        subst = None
       obj.load_lazy_attribute(name, subst)
 
     # If we are looking up a member that we can determine is an instance
     # rather than a class attribute, add it to the instance's members.
-    if isinstance(obj, abstract.Instance):
-      if name not in obj.members or not obj.members[name].bindings:
-        # See test_generic.testInstanceAttributeVisible for an example of an
-        # attribute in self.members needing to be reloaded.
-        self._maybe_load_as_instance_attribute(node, obj, name)
+    if isinstance(obj, abstract.Instance) and (name not in obj.members or
+                                               not obj.members[name].bindings):
+      # See test_generic.testInstanceAttributeVisible for an example of an
+      # attribute in self.members needing to be reloaded.
+      self._maybe_load_as_instance_attribute(node, obj, name)
 
     # Retrieve member
     if name in obj.members and obj.members[name].Bindings(node):
@@ -537,13 +533,7 @@ class AbstractAttributeHandler(utils.ContextWeakrefMixin):
       val = binding.data
       if isinstance(val, abstract.TypeParameterInstance):
         var = val.instance.get_instance_type_parameter(val.name)
-        # If this type parameter has visible values, we add those to the
-        # return value. Otherwise, if it has constraints, we add those as an
-        # upper bound on the values. When all else fails, we add an empty
-        # value as a placeholder that can be passed around and converted to
-        # Any after analysis.
-        var_bindings = var.Bindings(node)
-        if var_bindings:
+        if var_bindings := var.Bindings(node):
           bindings.extend(var_bindings)
         elif val.param.constraints or val.param.bound:
           ret.PasteVariable(val.param.instantiate(node))
@@ -551,10 +541,7 @@ class AbstractAttributeHandler(utils.ContextWeakrefMixin):
           ret.AddBinding(self.ctx.convert.empty, [], node)
       else:
         ret.AddBinding(val, {binding}, node)
-    if ret.bindings:
-      return ret
-    else:
-      return None
+    return ret if ret.bindings else None
 
   def _maybe_load_as_instance_attribute(self, node, obj, name):
     assert isinstance(obj, abstract.SimpleValue)

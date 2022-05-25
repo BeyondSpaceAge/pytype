@@ -29,15 +29,22 @@ def _ascii_tree(out, node, p1, p2, seen, get_children, get_description=None):
   children = list(get_children(node))
   text = get_description(node) if get_description else str(node)
   if node in seen:
-    out.write(p1 + "[" + text + "]\n")
+    out.write(f"{p1}[{text}" + "]\n")
   else:
     out.write(p1 + text + "\n")
     seen.add(node)
     for i, c in enumerate(children):
       last = (i == len(children) - 1)
       out.write(p2 + "|\n")
-      _ascii_tree(out, c, p2 + "+-", p2 + ("  " if last else "| "),
-                  seen, get_children, get_description)
+      _ascii_tree(
+          out,
+          c,
+          f"{p2}+-",
+          p2 + ("  " if last else "| "),
+          seen,
+          get_children,
+          get_description,
+      )
 
 
 def ascii_tree(node, get_children, get_description=None):
@@ -60,7 +67,7 @@ def prettyprint_binding(binding, indent_level=0):
   """Pretty print a binding with variable id and data."""
   indent = " " * indent_level
   if not binding:
-    return indent + "<>"
+    return f"{indent}<>"
   return "%s<v%d : %r>" % (indent, binding.variable.id, binding.data)
 
 
@@ -82,11 +89,8 @@ def prettyprint_binding_nested(binding, indent_level=0):
   if indent_level > 32:
     return indent + "-[ max recursion depth exceeded ]-\n"
   s = "%sbinding v%s=%r\n" % (indent, binding.variable.id, binding.data)
-  other = ""
-  for v in binding.variable.bindings:
-    if v is not binding:
-      other += "%r %s " % (v.data, [o.where for o in v.origins])
-  if other:
+  if other := "".join("%r %s " % (v.data, [o.where for o in v.origins])
+                      for v in binding.variable.bindings if v is not binding):
     s += "%s(other assignments: %s)\n" % (indent, other)
   for origin in binding.origins:
     s += "%s  at %s\n" % (indent, origin.where)
@@ -113,16 +117,13 @@ def prettyprint_cfg_node(node, decorate_after_node=0, full=False):
   """
   if node.id <= decorate_after_node:
     return repr(node) + " [%d bindings]" % len(node.bindings)
-  if full:
-    name = lambda x: getattr(x, "name", str(x))
-  else:
-    name = str
+  name = (lambda x: getattr(x, "name", str(x))) if full else str
   bindings = collections.defaultdict(list)
   for b in node.bindings:
     bindings[b.variable.id].append(name(b.data))
   b = ", ".join(["%d:%s" % (k, "|".join(v))
                  for k, v in sorted(bindings.items())])
-  return repr(node) + " [" + b + "]"
+  return f"{repr(node)} [{b}]"
 
 
 def prettyprint_cfg_tree(root, decorate_after_node=0, full=False,
@@ -157,15 +158,15 @@ def _pretty_variable(var):
     lines.append(var_desc)
     var_prefix = "  "
   else:
-    var_prefix = var_desc + " = "
+    var_prefix = f"{var_desc} = "
 
   for value in var.bindings:
     data = utils.maybe_truncate(value.data)
-    binding = "%s %s" % (var_prefix, data)
+    binding = f"{var_prefix} {data}"
 
     if len(value.origins) == 1:
       # Single origin.  Use the binding as a prefix when writing the origin.
-      prefix = binding + ", "
+      prefix = f"{binding}, "
     else:
       # Multiple origins, write the binding on its own line, then indent all
       # of the origins.
@@ -226,7 +227,7 @@ def program_to_dot(program, ignored, only_cfg=False):
     A str of the dot code.
   """
   def objname(n):
-    return n.__class__.__name__ + str(id(n))
+    return n.__class__.__name__ + id(n)
 
   def objrepr(n):
     return repr(n.data)[:10].replace("\"", "\\\"").replace("{", r"\{")
@@ -301,10 +302,7 @@ def root_cause(binding, node, seen=()):
     A tuple (binding, node), with "binding" the innermost binding that's
     not possible, and "node" the CFG node at which it isn't.
   """
-  if isinstance(binding, (list, tuple)):
-    bindings = list(binding)
-  else:
-    bindings = [binding]
+  bindings = list(binding) if isinstance(binding, (list, tuple)) else [binding]
   del binding
   key = frozenset(bindings)
   if key in seen:
@@ -455,7 +453,4 @@ def trace(name, *trace_args):
 def show(x):
   """Pretty print values for debugging."""
   typename = x.__class__.__name__
-  if typename == "Variable":
-    return f"{x!r} {x.data}"
-  else:
-    return f"{x!r} <{typename}>"
+  return f"{x!r} {x.data}" if typename == "Variable" else f"{x!r} <{typename}>"

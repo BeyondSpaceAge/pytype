@@ -63,7 +63,7 @@ class AnnotationClass(_instance_base.SimpleValue, mixin.HasSlots):
     raise NotImplementedError(self.__class__.__name__)
 
   def __repr__(self):
-    return "AnnotationClass(%s)" % self.name
+    return f"AnnotationClass({self.name})"
 
   def _get_class(self):
     return self.ctx.convert.type_type
@@ -77,7 +77,7 @@ class AnnotationContainer(AnnotationClass):
     self.base_cls = base_cls
 
   def __repr__(self):
-    return "AnnotationContainer(%s)" % self.name
+    return f"AnnotationContainer({self.name})"
 
   def _sub_annotation(
       self, annot: _base.BaseValue, subst: Mapping[str, _base.BaseValue]
@@ -244,7 +244,7 @@ class AnnotationContainer(AnnotationClass):
           for k, v in imports.items():
             added_imports[k] |= v
 
-      expr = "%s[%s]" % (self.base_cls.expr, ", ".join(printed_params))
+      expr = f'{self.base_cls.expr}[{", ".join(printed_params)}]'
       annot = LateAnnotation(expr, self.base_cls.stack, self.ctx,
                              imports=added_imports)
       self.ctx.vm.late_annotations[self.base_cls.expr].append(annot)
@@ -448,7 +448,7 @@ class Union(_base.BaseValue, mixin.NestedAnnotation, mixin.HasSlots):
       self._printing = True
       printed_contents = ", ".join(repr(o) for o in self.options)
       self._printing = False
-    return "%s[%s]" % (self.name, printed_contents)
+    return f"{self.name}[{printed_contents}]"
 
   def __eq__(self, other):
     if isinstance(other, type(self)):
@@ -468,10 +468,7 @@ class Union(_base.BaseValue, mixin.NestedAnnotation, mixin.HasSlots):
 
   def _get_class(self):
     classes = {o.cls for o in self.options}
-    if len(classes) > 1:
-      return self.ctx.convert.unsolvable
-    else:
-      return classes.pop()
+    return self.ctx.convert.unsolvable if len(classes) > 1 else classes.pop()
 
   def getitem_slot(self, node, slice_var):
     """Custom __getitem__ implementation."""
@@ -673,10 +670,9 @@ class LateAnnotation:
     """Instantiate the pointed-to class, or record a placeholder instance."""
     if self.resolved:
       return self._type.instantiate(node, container)
-    else:
-      instance = _instance_base.Instance(self, self.ctx)
-      self._unresolved_instances.add(instance)
-      return instance.to_variable(node)
+    instance = _instance_base.Instance(self, self.ctx)
+    self._unresolved_instances.add(instance)
+    return instance.to_variable(node)
 
   def get_special_attribute(self, node, name, valself):
     if name == "__getitem__" and not self.resolved:

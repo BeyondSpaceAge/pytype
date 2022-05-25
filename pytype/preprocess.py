@@ -38,6 +38,6 @@ def augment_annotations(src):
       # No need to preserve comments, users should never see the transformed
       # source code.
       line, *_ = lines[i].split("#", 1)
-      lines[i] = line + " = ..."
+      lines[i] = f"{line} = ..."
     src = "\n".join(lines)
   return src

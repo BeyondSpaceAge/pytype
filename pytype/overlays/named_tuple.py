@@ -453,10 +453,7 @@ class NamedTupleClassBuilder(abstract.PyTDClass):
       else:
         # The field types may refer back to the class being built.
         with ctx.allow_recursive_convert():
-          if c.value:
-            default = ctx.new_unsolvable(ctx.root_node)
-          else:
-            default = None
+          default = ctx.new_unsolvable(ctx.root_node) if c.value else None
           fields.append(
               Field(c.name, ctx.convert.constant_to_value(ct), default))
 
@@ -490,11 +487,13 @@ class NamedTupleClassBuilder(abstract.PyTDClass):
       classvars = [(name, ctx.convert.constant_to_value(typ))
                    for name, typ in classvars]
 
-    # Add fields and classvars to the annotation dictionary
-    locals_ = {f.name: abstract_utils.Local(node, None, f.typ, None, ctx)
-               for f in fields}
-    locals_.update({name: abstract_utils.Local(node, None, typ, None, ctx)
-                    for name, typ in classvars})
+    locals_ = {
+        f.name: abstract_utils.Local(node, None, f.typ, None, ctx)
+        for f in fields
+    } | {
+        name: abstract_utils.Local(node, None, typ, None, ctx)
+        for name, typ in classvars
+    }
     annots = abstract.AnnotationsDict(locals_, ctx).to_variable(node)
     cls.members["__annotations__"] = annots
 
