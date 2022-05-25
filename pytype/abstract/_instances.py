@@ -89,8 +89,7 @@ class Module(_instance_base.Instance, mixin.LazyMembers):
     Returns:
       True if we have __getattr__.
     """
-    f = self._member_map.get("__getattr__")
-    if f:
+    if f := self._member_map.get("__getattr__"):
       if isinstance(f, pytd.Function):
         if len(f.signatures) != 1:
           log.warning("overloaded module-level __getattr__ (in %s)", self.name)
@@ -103,7 +102,7 @@ class Module(_instance_base.Instance, mixin.LazyMembers):
     return False
 
   def get_submodule(self, node, name):
-    full_name = self.name + "." + name
+    full_name = f"{self.name}.{name}"
     mod = self.ctx.vm.import_module(full_name, full_name,
                                     0)  # 0: absolute import
     if mod is not None:
@@ -177,10 +176,9 @@ class BaseGenerator(_instance_base.Instance):
 
   def run_generator(self, node):
     """Run the generator."""
-    if self.runs == 0:  # Optimization: We only run it once.
+    if self.runs == 0:# Optimization: We only run it once.
       node, _ = self.ctx.vm.resume_frame(node, self.frame)
-      ret_type = self.frame.allowed_returns
-      if ret_type:
+      if ret_type := self.frame.allowed_returns:
         # set type parameters according to annotated Generator return type
         type_params = [abstract_utils.T, abstract_utils.T2]
         if self.is_return_allowed:
@@ -228,12 +226,7 @@ class Generator(BaseGenerator):
     if name == "__iter__":
       f = _make("NativeFunction", name, self.__iter__, self.ctx)
       return f.to_variable(node)
-    elif name == "__next__":
-      return self.to_variable(node)
-    elif name == "throw":
-      # We don't model exceptions in a way that would allow us to induce one
-      # inside a coroutine. So just return ourself, mapping the call of
-      # throw() to a next() (which won't be executed).
+    elif name in ["__next__", "throw"]:
       return self.to_variable(node)
     else:
       return super().get_special_attribute(node, name, valself)
@@ -266,7 +259,7 @@ class Tuple(_instance_base.Instance, mixin.PythonConstant):
                         for val in self.pyval)
     if self.tuple_length == 1:
       content += ","
-    return "(%s)" % content
+    return f"({content})"
 
   def _unique_parameters(self):
     parameters = super()._unique_parameters()
@@ -545,11 +538,10 @@ class Dict(_instance_base.Instance, mixin.HasSlots, mixin.PythonDict):
         return self.call_pytd(node, "pop", key_var)
     if default_var:
       return node, self.pyval.pop(str_key, default_var)
-    else:
-      try:
-        return node, self.pyval.pop(str_key)
-      except KeyError as e:
-        raise function.DictKeyMissing(str_key) from e
+    try:
+      return node, self.pyval.pop(str_key)
+    except KeyError as e:
+      raise function.DictKeyMissing(str_key) from e
 
   def update_slot(self, node, *args, **kwargs):
     posargs_handled = False
@@ -561,11 +553,10 @@ class Dict(_instance_base.Instance, mixin.HasSlots, mixin.PythonDict):
     elif not args:
       posargs_handled = True
     self.update(node, kwargs)
-    if not posargs_handled:
-      self.could_contain_anything = True
-      return self.call_pytd(node, "update", *args)
-    else:
+    if posargs_handled:
       return node, self.ctx.convert.none.to_variable(node)
+    self.could_contain_anything = True
+    return self.call_pytd(node, "update", *args)
 
   def update(self, node, other_dict, omit=()):
     if isinstance(other_dict, (Dict, dict)):
@@ -605,8 +596,7 @@ class AnnotationsDict(Dict):
 
   def get_annotations(self, node):
     for name, local in self.annotated_locals.items():
-      typ = local.get_type(node, name)
-      if typ:
+      if typ := local.get_type(node, name):
         yield name, typ
 
   def __repr__(self):

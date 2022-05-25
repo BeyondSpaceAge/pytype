@@ -56,10 +56,10 @@ class Options:
     if command_line:
       assert isinstance(argv_or_options, list)
       options = argument_parser.parse_args(argv_or_options)
+    elif isinstance(argv_or_options, list):
+      raise TypeError("Do not construct an Options object directly; call "
+                      "Options.create() instead.")
     else:
-      if isinstance(argv_or_options, list):
-        raise TypeError("Do not construct an Options object directly; call "
-                        "Options.create() instead.")
       options = argv_or_options
     for name, default in _LIBRARY_ONLY_OPTIONS.items():
       if not hasattr(options, name):
@@ -77,10 +77,9 @@ class Options:
   def create(cls, input_filename=None, **kwargs):
     """Create options from kwargs."""
     argument_parser = make_parser()
-    unknown_options = (set(kwargs) - set(argument_parser.actions) -
-                       set(_LIBRARY_ONLY_OPTIONS))
-    if unknown_options:
-      raise ValueError("Unrecognized options: %s" % ", ".join(unknown_options))
+    if unknown_options := (
+        set(kwargs) - set(argument_parser.actions) - set(_LIBRARY_ONLY_OPTIONS)):
+      raise ValueError(f'Unrecognized options: {", ".join(unknown_options)}')
     options = argument_parser.parse_args(
         [input_filename or "dummpy_input_file"])
     for k, v in kwargs.items():
@@ -190,10 +189,9 @@ EXPERIMENTAL_FLAGS = [
 def add_feature_flags(o):
   """Add flags for experimental and temporarily gated features."""
   def flag(opt, default, help_text, temporary):
-    temporary = ("This flag is temporary and will be removed once this "
-                 "behavior is enabled by default.")
     dest = opt.lstrip("-").replace("-", "_")
-    if temporary:
+    if (temporary := "This flag is temporary and will be removed once this "
+        "behavior is enabled by default."):
       help_text = f"{help_text} {temporary}"
     else:
       help_text = f"Experimental: {help_text}"
@@ -454,7 +452,7 @@ class Postprocessor:
 
   def error(self, message, key=None):
     if key:
-      message = "argument --%s: %s" % (key, message)
+      message = f"argument --{key}: {message}"
     raise PostprocessingError(message)
 
   @uses(["output"])
@@ -472,8 +470,10 @@ class Postprocessor:
       if self.output_options.output is None:
         self.error("Can't use without --output", "pickle-output")
       elif not pytd_utils.IsPickle(self.output_options.output):
-        self.error("Must specify %s file for --output" % pytd_utils.PICKLE_EXT,
-                   "pickle-output")
+        self.error(
+            f"Must specify {pytd_utils.PICKLE_EXT} file for --output",
+            "pickle-output",
+        )
     self.output_options.pickle_output = pickle_output
 
   @uses(["output", "pickle_output"])
@@ -516,7 +516,7 @@ class Postprocessor:
   def _store_verbosity(self, verbosity):
     """Configure logging."""
     if not -1 <= verbosity < len(LOG_LEVELS):
-      self.error("invalid --verbosity: %s" % verbosity)
+      self.error(f"invalid --verbosity: {verbosity}")
     self.output_options.verbosity = verbosity
 
   def _store_pythonpath(self, pythonpath):
@@ -556,10 +556,7 @@ class Postprocessor:
                  self.output_options.python_version)
 
   def _store_disable(self, disable):
-    if disable:
-      self.output_options.disable = disable.split(",")
-    else:
-      self.output_options.disable = []
+    self.output_options.disable = disable.split(",") if disable else []
 
   @uses(["disable"])
   def _store_enable_only(self, enable_only):
@@ -664,7 +661,7 @@ def _set_verbosity(verbosity, timestamp_logs, debug_logs):
     else:
       fmt = "%(levelname)s:%(name)s %(message)s"
       if timestamp_logs:
-        fmt = "%(relativeCreated)f " + fmt
+        fmt = f"%(relativeCreated)f {fmt}"
     logging.basicConfig(level=basic_logging_level, format=fmt)
 
 

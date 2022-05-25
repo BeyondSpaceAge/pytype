@@ -37,8 +37,7 @@ def read_source_file(input_filename, open_function=open):
     with open_function(input_filename, "r", encoding="utf8") as fi:
       return fi.read()
   except IOError as e:
-    raise utils.UsageError("Could not load input file %s" %
-                           input_filename) from e
+    raise utils.UsageError(f"Could not load input file {input_filename}") from e
 
 
 def _set_verbosity_from(posarg):
@@ -202,10 +201,7 @@ def process_one_file(options):
     return 1
 
   if not options.check:
-    if options.pickle_output:
-      pyi_output = options.verify_pickle
-    else:
-      pyi_output = options.output
+    pyi_output = options.verify_pickle if options.pickle_output else options.output
     # Write out the pyi file.
     if pyi_output:
       _write_pyi_output(options, result, pyi_output)
@@ -252,11 +248,10 @@ def write_pickle(ast, options, loader=None):
 
 
 def print_error_doc_url(errorlog):
-  names = {e.name for e in errorlog}
-  if names:
+  if names := {e.name for e in errorlog}:
     doclink = "\nFor more details, see %s" % ERROR_DOC_URL
     if len(names) == 1:
-      doclink += "#" + names.pop()
+      doclink += f"#{names.pop()}"
     print(doclink, file=sys.stderr)
 
 
@@ -311,20 +306,21 @@ def wrap_pytype_exceptions(exception_type, filename=""):
   try:
     yield
   except utils.UsageError as e:
-    raise exception_type("Pytype usage error: %s" % utils.message(e)) from e
+    raise exception_type(f"Pytype usage error: {utils.message(e)}") from e
   except pyc.CompileError as e:
-    raise exception_type("Error reading file %s at line %s: %s" %
-                         (filename, e.lineno, e.error)) from e
+    raise exception_type(
+        f"Error reading file {filename} at line {e.lineno}: {e.error}") from e
   except libcst.ParserSyntaxError as e:
-    raise exception_type("Error reading file %s at line %s: %s" %
-                         (filename, e.raw_line, e.message)) from e
+    raise exception_type(
+        f"Error reading file {filename} at line {e.raw_line}: {e.message}"
+    ) from e
   except directors.SkipFileError as e:
     raise exception_type("Pytype could not analyze file %s: "
                          "'# skip-file' directive found" % filename) from e
   except pytd_utils.LoadPickleError as e:
     raise exception_type(
-        "Error analyzing file %s: Could not load serialized dependency %s" % (
-            filename, e.filename)) from e
-  except Exception as e:  # pylint: disable=broad-except
-    msg = "Pytype error: %s: %s" % (e.__class__.__name__, e.args[0])
+        f"Error analyzing file {filename}: Could not load serialized dependency {e.filename}"
+    ) from e
+  except Exception as e:# pylint: disable=broad-except
+    msg = f"Pytype error: {e.__class__.__name__}: {e.args[0]}"
     raise exception_type(msg).with_traceback(e.__traceback__)

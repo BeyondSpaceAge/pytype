@@ -19,8 +19,7 @@ def parse_args():
                       help="The destination directory.")
   parser.add_argument("file_list", metavar="FILE", type=str, nargs="+",
                       help="List of files to copy.")
-  args = parser.parse_args()
-  return args
+  return parser.parse_args()
 
 
 def copy_file(src_dir, dst_dir, filename):

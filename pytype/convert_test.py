@@ -21,7 +21,7 @@ class ConvertTest(test_base.UnitTest):
 
   def _load_ast(self, name, src):
     with file_utils.Tempdir() as d:
-      d.create_file(name + ".pyi", src)
+      d.create_file(f"{name}.pyi", src)
       self._ctx.options.tweak(pythonpath=[d.path])  # monkeypatch
       return self._ctx.loader.import_name(name)
 

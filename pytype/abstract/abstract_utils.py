@@ -126,8 +126,8 @@ def get_atomic_value(variable, constant_type=None, default=_None()):
   bindings = variable.bindings
   name = bindings[0].data.ctx.convert.constant_name(constant_type)
   raise ConversionError(
-      "Cannot get atomic value %s from variable. %s %s"
-      % (name, variable, [b.data for b in bindings]))
+      f"Cannot get atomic value {name} from variable. {variable} {[b.data for b in bindings]}"
+  )
 
 
 def match_atomic_value(variable, typ=None):
@@ -302,7 +302,7 @@ def _merge_type(t0, t1, name, cls):
   # t1 is a base of t0
   if t1 in t0.mro:
     return t0
-  raise GenericTypeError(cls, "Conflicting value for TypeVar %s" % name)
+  raise GenericTypeError(cls, f"Conflicting value for TypeVar {name}")
 
 
 def parse_formal_type_parameters(
@@ -388,7 +388,7 @@ def full_type_name(val, name):
   # The type is in current `class`
   for t in val.template:
     if t.name == name:
-      return val.full_name + "." + name
+      return f"{val.full_name}.{name}"
     elif t.full_name == name:
       return t.full_name
   # The type is instantiated in `base class`
@@ -460,8 +460,7 @@ def match_type_container(typ, container_type_name: Union[str, Tuple[str, ...]]):
   if not (_isinstance(typ, "ParameterizedClass") and
           typ.full_name in container_type_name):
     return None
-  param = typ.get_formal_type_parameter(T)
-  return param
+  return typ.get_formal_type_parameter(T)
 
 
 def get_annotations_dict(members):
@@ -493,12 +492,7 @@ class Local:
                typ: Optional[_BaseValue], orig: Optional[cfg.Variable], ctx):
     self._ops = [op]
     self.final = False
-    if typ:
-      self.typ = ctx.program.NewVariable([typ], [], node)
-    else:
-      # Creating too many variables bloats the typegraph, hurting performance,
-      # so we use None instead of an empty variable.
-      self.typ = None
+    self.typ = ctx.program.NewVariable([typ], [], node) if typ else None
     self.orig = orig
     self.ctx = ctx
 

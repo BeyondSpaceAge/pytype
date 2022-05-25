@@ -45,10 +45,10 @@ class MatcherTest(MatcherTestBase):
     if filename is None:
       filename = str(hash(src))
     with file_utils.Tempdir() as d:
-      d.create_file(filename + ".pyi", src)
+      d.create_file(f"{filename}.pyi", src)
       self.ctx.options.tweak(pythonpath=[d.path])  # monkeypatch
       ast = self.ctx.loader.import_name(filename)
-      return ast.Lookup(filename + "." + objname)
+      return ast.Lookup(f"{filename}.{objname}")
 
   def _convert(self, x, name, as_instance=False):
     pyval = self._parse_and_lookup(x, name)

@@ -23,10 +23,9 @@ def _incompatible(left_name, right_name):
   """Incompatible primitive types can never be equal."""
   if left_name == right_name:
     return False
-  for group in NUMERIC, STRING:
-    if left_name in group and right_name in group:
-      return False
-  return True
+  return not any(
+      left_name in group and right_name in group
+      for group in (NUMERIC, STRING))
 
 
 def _is_primitive_constant(ctx, value):
@@ -228,11 +227,8 @@ def compatible_with(value, logical_value):
   elif isinstance(value, abstract.Instance):
     name = value.full_name
     if logical_value and name in _CONTAINER_NAMES:
-      # Containers with unset parameters cannot match True.
-      ret = (
-          value.has_instance_type_parameter(abstract_utils.T) and
-          bool(value.get_instance_type_parameter(abstract_utils.T).bindings))
-      return ret
+      return value.has_instance_type_parameter(abstract_utils.T) and bool(
+          value.get_instance_type_parameter(abstract_utils.T).bindings)
     elif name == "builtins.NoneType":
       # NoneType instances cannot match True.
       return not logical_value
@@ -241,12 +237,7 @@ def compatible_with(value, logical_value):
       return True
     elif (isinstance(value.cls, abstract.Class) and
           not value.cls.overrides_bool):
-      if getattr(value.cls, "template", None):
-        # A parameterized class can match both True and False, since it might be
-        # an empty container.
-        return True
-      # Objects evaluate to True unless explicitly overridden.
-      return logical_value
+      return True if getattr(value.cls, "template", None) else logical_value
     return True
   elif isinstance(value, (abstract.Function, abstract.Class)):
     # Functions and classes always evaluate to True.

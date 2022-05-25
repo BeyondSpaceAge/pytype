@@ -179,22 +179,30 @@ class TestExpandHiddenFiles(unittest.TestCase):
 class TestExpandPythonpath(unittest.TestCase):
 
   def test_expand(self):
-    self.assertEqual(file_utils.expand_pythonpath("a/b%sc/d" % os.pathsep),
-                     [os.path.join(os.getcwd(), "a", "b"),
-                      os.path.join(os.getcwd(), "c", "d")])
+    self.assertEqual(
+        file_utils.expand_pythonpath(f"a/b{os.pathsep}c/d"),
+        [
+            os.path.join(os.getcwd(), "a", "b"),
+            os.path.join(os.getcwd(), "c", "d"),
+        ],
+    )
 
   def test_expand_empty(self):
     self.assertEqual(file_utils.expand_pythonpath(""), [])
 
   def test_expand_current_directory(self):
-    self.assertEqual(file_utils.expand_pythonpath("%sa" % os.pathsep),
-                     [os.getcwd(), os.path.join(os.getcwd(), "a")])
+    self.assertEqual(
+        file_utils.expand_pythonpath(f"{os.pathsep}a"),
+        [os.getcwd(), os.path.join(os.getcwd(), "a")],
+    )
 
   def test_expand_with_cwd(self):
     with file_utils.Tempdir() as d:
       self.assertEqual(
-          file_utils.expand_pythonpath("a/b%sc/d" % os.pathsep, cwd=d.path),
-          [os.path.join(d.path, "a", "b"), os.path.join(d.path, "c", "d")])
+          file_utils.expand_pythonpath(f"a/b{os.pathsep}c/d", cwd=d.path),
+          [os.path.join(d.path, "a", "b"),
+           os.path.join(d.path, "c", "d")],
+      )
 
   def test_strip_whitespace(self):
     self.assertEqual(file_utils.expand_pythonpath("""

@@ -58,9 +58,7 @@ def _load_data_file(filename, text):
     IOError: if file not found
   """
   path = filename if os.path.isabs(filename) else  get_full_path(filename)
-  # Check for a ResourceLoader (see comment under list_pytype_files).
-  loader = globals().get("__loader__", None)
-  if loader:
+  if loader := globals().get("__loader__", None):
     # For an explanation of the args to loader.get_data, see
     # https://www.python.org/dev/peps/pep-0302/#optional-extensions-to-the-importer-protocol
     # https://docs.python.org/3/library/importlib.html#importlib.abc.ResourceLoader.get_data
@@ -102,7 +100,7 @@ def list_pytype_files(suffix):
     NoSuchDirectory: if the directory doesn't exist.
   """
   assert not suffix.endswith("/")
-  loader = globals().get("__loader__", None)
+  loader = globals().get("__loader__")
   try:
     # List directory using __loader__.
     # __loader__ exists only when this file is in a Python archive in Python 2
@@ -111,11 +109,10 @@ def list_pytype_files(suffix):
     filenames = loader.get_zipfile().namelist()  # pytype: disable=attribute-error
   except AttributeError:
     # List directory using the file system
-    for f in list_files(get_full_path(suffix)):
-      yield f
+    yield from list_files(get_full_path(suffix))
   else:
     for filename in filenames:
-      directory = "pytype/" + suffix + "/"
+      directory = f"pytype/{suffix}/"
       try:
         i = filename.rindex(directory)
       except ValueError:

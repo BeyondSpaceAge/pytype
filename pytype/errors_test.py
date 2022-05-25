@@ -114,8 +114,8 @@ class ErrorTest(unittest.TestCase):
     errorlog = errors.ErrorLog()
     op = test_utils.FakeOpcode("foo.py", 123, "foo")
     message, details = "This is an error", "with\nsome\ndetails: \"1\", 2, 3"
-    errorlog.error(op.to_stack(), message, details + "0")
-    errorlog.error(op.to_stack(), message, details + "1")
+    errorlog.error(op.to_stack(), message, f"{details}0")
+    errorlog.error(op.to_stack(), message, f"{details}1")
     with file_utils.Tempdir() as d:
       filename = d.create_file("errors.csv")
       errorlog.print_to_csv_file(filename)
@@ -163,7 +163,7 @@ class ErrorLogBaseTest(unittest.TestCase):
   def test_error(self):
     errorlog = errors.ErrorLog()
     op = test_utils.FakeOpcode("foo.py", 123, "foo")
-    errorlog.error(op.to_stack(), "unknown attribute %s" % "xyz")
+    errorlog.error(op.to_stack(), 'unknown attribute xyz')
     self.assertEqual(len(errorlog), 1)
     e = list(errorlog)[0]  # iterate the log and save the first error.
     self.assertEqual(errors.SEVERITY_ERROR, e._severity)
@@ -266,7 +266,7 @@ class ErrorLogBaseTest(unittest.TestCase):
   def test_color_print_to_stderr(self):
     errorlog = errors.ErrorLog()
     op = test_utils.FakeOpcode("foo.py", 123, "foo")
-    errorlog.error(op.to_stack(), "unknown attribute %s" % "xyz")
+    errorlog.error(op.to_stack(), 'unknown attribute xyz')
     self.assertEqual(len(errorlog), 1)
 
     mock_stderr = io.StringIO()
@@ -279,7 +279,7 @@ class ErrorLogBaseTest(unittest.TestCase):
   def test_color_print_to_file(self):
     errorlog = errors.ErrorLog()
     op = test_utils.FakeOpcode("foo.py", 123, "foo")
-    errorlog.error(op.to_stack(), "unknown attribute %s" % "xyz")
+    errorlog.error(op.to_stack(), 'unknown attribute xyz')
     self.assertEqual(len(errorlog), 1)
 
     string_io = io.StringIO()
@@ -314,13 +314,11 @@ class ErrorDocTest(unittest.TestCase):
   def test_error_doc(self):
     documented_errors = self._check_and_get_documented_errors()
     all_errors = errors._ERROR_NAMES - {_TEST_ERROR}
-    undocumented_errors = all_errors - documented_errors
-    if undocumented_errors:
+    if undocumented_errors := all_errors - documented_errors:
       raise AssertionError(
           "These errors are missing entries in errors.md:\n  " +
           "\n  ".join(undocumented_errors) + "\n")
-    deprecated_errors = documented_errors - all_errors
-    if deprecated_errors:
+    if deprecated_errors := documented_errors - all_errors:
       raise AssertionError(
           "These errors.md entries do not correspond to errors:\n  " +
           "\n  ".join(deprecated_errors))

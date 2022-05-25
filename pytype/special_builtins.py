@@ -133,12 +133,11 @@ class Next(BuiltinFunction):
     self.match_args(node, args)
     arg, default = self._get_args(args)
     node, fn = self.get_underlying_method(node, arg, "__next__")
-    if fn is not None:
-      node, ret = function.call_function(self.ctx, node, fn, function.Args(()))
-      ret.PasteVariable(default)
-      return node, ret
-    else:
+    if fn is None:
       return node, self.ctx.new_unsolvable(node)
+    node, ret = function.call_function(self.ctx, node, fn, function.Args(()))
+    ret.PasteVariable(default)
+    return node, ret
 
 
 class ObjectPredicate(BuiltinFunction):
@@ -341,10 +340,10 @@ class BuiltinClass(abstract.PyTDClass):
 
   def __init__(self, ctx, name, module="builtins"):
     if module == "builtins":
-      pytd_cls = ctx.loader.lookup_builtin("builtins.%s" % name)
+      pytd_cls = ctx.loader.lookup_builtin(f"builtins.{name}")
     else:
       ast = ctx.loader.import_name(module)
-      pytd_cls = ast.Lookup("%s.%s" % (module, name))
+      pytd_cls = ast.Lookup(f"{module}.{name}")
     super().__init__(name, pytd_cls, ctx)
     self.module = module
 
@@ -375,16 +374,14 @@ class SuperInstance(abstract.BaseValue):
     return None
 
   def get_special_attribute(self, node, name, valself):
-    if name == "__get__":
-      for cls in self.super_cls.mro[1:]:
-        attr = self._get_descriptor_from_superclass(node, cls)
-        if attr:
-          return attr
-      # If we have not successfully called __get__ on an instance of the
-      # superclass, fall back to returning self.
-      return self.get.to_variable(node)
-    else:
+    if name != "__get__":
       return super().get_special_attribute(node, name, valself)
+    for cls in self.super_cls.mro[1:]:
+      if attr := self._get_descriptor_from_superclass(node, cls):
+        return attr
+    # If we have not successfully called __get__ on an instance of the
+    # superclass, fall back to returning self.
+    return self.get.to_variable(node)
 
   def call(self, node, _, args):
     self.ctx.errorlog.not_callable(self.ctx.vm.frames, self)
@@ -404,18 +401,18 @@ class Super(BuiltinClass):
     result = self.ctx.program.NewVariable()
     num_args = len(args.posargs)
     if num_args == 0:
-      # The implicit type argument is available in a freevar named '__class__'.
-      cls_var = None
       # If we are in a list comprehension we want the enclosing frame.
       index = -1
       while self.ctx.vm.frames[index].f_code.co_name == "<listcomp>":
         index -= 1
       frame = self.ctx.vm.frames[index]
-      for i, free_var in enumerate(frame.f_code.co_freevars):
-        if free_var == abstract.BuildClass.CLOSURE_NAME:
-          cls_var = frame.cells[len(frame.f_code.co_cellvars) + i]
-          break
-      if not (cls_var and cls_var.bindings):
+      cls_var = next(
+          (frame.cells[len(frame.f_code.co_cellvars) + i]
+           for i, free_var in enumerate(frame.f_code.co_freevars)
+           if free_var == abstract.BuildClass.CLOSURE_NAME),
+          None,
+      )
+      if not cls_var or not cls_var.bindings:
         self.ctx.errorlog.invalid_super_call(
             self.ctx.vm.frames,
             message="Missing __class__ closure for super call.",
@@ -469,8 +466,10 @@ class Object(BuiltinClass):
     """
     self.load_lazy_attribute("__new__")
     self.load_lazy_attribute("__new__extra_args")
-    return ([func] == self.members["__new__"].data or
-            [func] == self.members["__new__extra_args"].data)
+    return [func] in [
+        self.members["__new__"].data,
+        self.members["__new__extra_args"].data,
+    ]
 
   def _has_own(self, node, cls, method):
     """Whether a class has its own implementation of a particular method.
@@ -722,11 +721,10 @@ class Dict(BuiltinClass):
       build_literal = not args.has_non_namedargs()
     else:
       build_literal = args.is_empty()
-    if build_literal:
-      # special-case a dict constructor with explicit k=v args
-      d = abstract.Dict(self.ctx)
-      for (k, v) in args.namedargs.items():
-        d.set_str_item(node, k, v)
-      return node, d.to_variable(node)
-    else:
+    if not build_literal:
       return super().call(node, funcb, args)
+    # special-case a dict constructor with explicit k=v args
+    d = abstract.Dict(self.ctx)
+    for (k, v) in args.namedargs.items():
+      d.set_str_item(node, k, v)
+    return node, d.to_variable(node)

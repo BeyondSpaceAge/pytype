@@ -150,8 +150,13 @@ def run_cmake(force_clean=False, log_output=False, debug_build=False):
     return True
 
   print("Running CMake ...\n")
-  cmd = ["cmake", PYTYPE_SRC_ROOT, "-G", "Ninja",
-         "-DPython_ADDITIONAL_VERSIONS=%s" % current_config.py_version]
+  cmd = [
+      "cmake",
+      PYTYPE_SRC_ROOT,
+      "-G",
+      "Ninja",
+      f"-DPython_ADDITIONAL_VERSIONS={current_config.py_version}",
+  ]
   if debug_build:
     cmd.append("-DCMAKE_BUILD_TYPE=Debug")
   returncode, stdout = run_cmd(cmd, cwd=OUT_DIR)
@@ -187,9 +192,9 @@ class FailCollector(object):
       return
     print("\n%d test module(s) failed: \n" % num_failures)
     for mod_name, log_file in self._failures:
-      msg = "** %s" % mod_name
+      msg = f"** {mod_name}"
       if log_file:
-        msg += " - %s" % log_file
+        msg += f" - {log_file}"
       print(msg)
       if log_file and verbose:
         with open(log_file.strip(), 'r') as f:
@@ -213,8 +218,8 @@ def run_ninja(targets, fail_collector=None, fail_fast=False, verbose=False):
   # True.
   cmd = ["ninja", "-k", "1" if fail_fast else "100000"] + targets
   with subprocess.Popen(
-      cmd, cwd=OUT_DIR,
-      stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as process:
+        cmd, cwd=OUT_DIR,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as process:
     failed_targets = []
     # When verbose output is requested, test failure logs are printed to stderr.
     # However, sometimes a test fails without generating a log, in which case we
@@ -233,8 +238,7 @@ def run_ninja(targets, fail_collector=None, fail_fast=False, verbose=False):
           # This is a failed ninja target.
           failed_targets.append(line[len(NINJA_FAILURE_PREFIX):].strip())
           print_if_verbose = True
-        if (msg_type == _TEST_MODULE_PASS_MSG or
-            msg_type == _TEST_MODULE_FAIL_MSG):
+        if msg_type in [_TEST_MODULE_PASS_MSG, _TEST_MODULE_FAIL_MSG]:
           print(line)
           if msg_type == _TEST_MODULE_FAIL_MSG:
             fail_collector.add_failure(modname, logfile)
@@ -248,17 +252,16 @@ def run_ninja(targets, fail_collector=None, fail_fast=False, verbose=False):
         print("\n" + summary_hdr)
         ninja_log.write("\n" + summary_hdr + "\n")
         for t in failed_targets:
-          target = "    - %s" % t
+          target = f"    - {t}"
           print(target)
           ninja_log.write(target + "\n")
     process.wait()
     if process.returncode == 0:
       return True
-    else:
-      # Ninja output can be a lot. Printing it here will clutter the output of
-      # this script. So, just tell the user how to repro the error.
-      print(">>> FAILED: Ninja command '%s'." % " ".join(cmd))
-      print(">>>         Run it in the 'out' directory to reproduce.")
-      print(">>>         Full Ninja output is available in '%s'." % NINJA_LOG)
-      print(">>>         Failing test modules (if any) will be reported below.")
-      return False
+    # Ninja output can be a lot. Printing it here will clutter the output of
+    # this script. So, just tell the user how to repro the error.
+    print(">>> FAILED: Ninja command '%s'." % " ".join(cmd))
+    print(">>>         Run it in the 'out' directory to reproduce.")
+    print(">>>         Full Ninja output is available in '%s'." % NINJA_LOG)
+    print(">>>         Failing test modules (if any) will be reported below.")
+    return False

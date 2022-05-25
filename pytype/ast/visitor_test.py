@@ -126,11 +126,7 @@ class BaseVisitorTest(unittest.TestCase):
 
     # The "Num" ast class is deprecated as of Python 3.8 and ast.parse returns
     # "Constant" instead.
-    if sys.hexversion >= 0x03080000:
-      constant = "Constant"
-    else:
-      constant = "Num"
-
+    constant = "Constant" if sys.hexversion >= 0x03080000 else "Num"
     self.assertEqual(v.nodes, ["Store", "Name", constant, "Assign", "Module"])
 
   def test_enter(self):

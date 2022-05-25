@@ -27,13 +27,12 @@ def _matches_generator_helper(type_obj, allowed_types):
   if isinstance(type_obj, _typing.Union):
     return all(_matches_generator_helper(sub_type, allowed_types)
                for sub_type in type_obj.options)
-  else:
-    base_cls = type_obj
-    if isinstance(type_obj, _classes.ParameterizedClass):
-      base_cls = type_obj.base_cls
-    return ((isinstance(base_cls, _classes.PyTDClass) and
-             base_cls.name in allowed_types) or
-            _isinstance(base_cls, "AMBIGUOUS_OR_EMPTY"))
+  base_cls = type_obj
+  if isinstance(type_obj, _classes.ParameterizedClass):
+    base_cls = type_obj.base_cls
+  return ((isinstance(base_cls, _classes.PyTDClass) and
+           base_cls.name in allowed_types) or
+          _isinstance(base_cls, "AMBIGUOUS_OR_EMPTY"))
 
 
 def _matches_generator(type_obj):
@@ -171,9 +170,9 @@ class SignedFunction(_function_base.Function):
         raise function.DuplicateKeyword(sig, args, self.ctx, key)
     kwnames = set(kws)
     extra_kws = kwnames.difference(sig.param_names + sig.kwonly_params)
-    if extra_kws and not sig.kwargs_name:
-      if function.has_visible_namedarg(node, args, extra_kws):
-        raise function.WrongKeywordArgs(sig, args, self.ctx, extra_kws)
+    if (extra_kws and not sig.kwargs_name
+        and function.has_visible_namedarg(node, args, extra_kws)):
+      raise function.WrongKeywordArgs(sig, args, self.ctx, extra_kws)
     posonly_kws = kwnames & posonly_names
     # If a function has a **kwargs parameter, then keyword arguments with the
     # same name as a positional-only argument are allowed, e.g.:
@@ -181,8 +180,8 @@ class SignedFunction(_function_base.Function):
     #   f(0, x=1)  # ok
     if posonly_kws and not sig.kwargs_name:
       raise function.WrongKeywordArgs(sig, args, self.ctx, posonly_kws)
-    callargs.update(positional)
-    callargs.update(kws)
+    callargs |= positional
+    callargs |= kws
     for key, kwonly in self.get_nondefault_params():
       if key not in callargs:
         if args.starstarargs or (args.starargs and not kwonly):
@@ -510,7 +509,7 @@ class InterpreterFunction(SignedFunction):
       arg_pos += 1
     defaults = dict(zip(
         self.get_positional_names()[-len(self.defaults):], self.defaults))
-    defaults.update(self.kw_defaults)
+    defaults |= self.kw_defaults
     return function.Signature(
         name,
         tuple(self.code.co_varnames[:self.code.co_argcount]),
@@ -620,10 +619,10 @@ class InterpreterFunction(SignedFunction):
     # encountered. These two cases generate different bytecode, and our VM
     # always assumes no exception. But for analyzing __exit__, we should allow
     # for both possibilities.
-    if not (isinstance(func.data, _function_base.BoundInterpreterFunction) and
-            self.name.endswith(".__exit__") and len(args.posargs) == 4 and
-            not args.has_namedargs() and not args.starargs and
-            not args.starstarargs and not self.signature.has_param_annotations):
+    if (not isinstance(func.data, _function_base.BoundInterpreterFunction)
+        or not self.name.endswith(".__exit__") or len(args.posargs) != 4
+        or args.has_namedargs() or args.starargs or args.starstarargs
+        or self.signature.has_param_annotations):
       return args
     exception_type = self.ctx.convert.name_to_value("builtins.BaseException")
     arg1 = self.ctx.program.NewVariable(

@@ -16,9 +16,7 @@ class MixinMetaTest(unittest.TestCase):
     class MyMixin(metaclass=mixin.MixinMeta):
       overloads = ("f",)
       def f(self, x):
-        if x == 0:
-          return "hello"
-        return MyMixin.super(self.f)(x)
+        return "hello" if x == 0 else MyMixin.super(self.f)(x)
 
     class B(A, MyMixin):
       pass

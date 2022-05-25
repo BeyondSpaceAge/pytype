@@ -56,10 +56,7 @@ class FrameState(utils.ContextWeakrefMixin):
     return self.data_stack[-1]
 
   def topn(self, n):
-    if n > 0:
-      return self.data_stack[-n:]
-    else:
-      return ()
+    return self.data_stack[-n:] if n > 0 else ()
 
   def pop(self):
     """Pop a value from the value stack."""

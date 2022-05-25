@@ -144,7 +144,7 @@ class Converter(utils.ContextWeakrefMixin):
     if constant_type is None:
       return "constant"
     elif isinstance(constant_type, tuple):
-      return "(%s)" % ", ".join(self.constant_name(c) for c in constant_type)
+      return f'({", ".join((self.constant_name(c) for c in constant_type))})'
     else:
       return constant_type.__name__
 
@@ -162,14 +162,14 @@ class Converter(utils.ContextWeakrefMixin):
     elif t is AsyncGeneratorType:
       return "builtins.asyncgenerator"
     else:
-      return "builtins." + t.__name__
+      return f"builtins.{t.__name__}"
 
   def value_to_constant(self, val, constant_type):
     if (abstract_utils.is_concrete(val) and
         isinstance(val.pyval, constant_type or object)):
       return val.pyval
     name = self.constant_name(constant_type)
-    raise abstract_utils.ConversionError("%s is not of type %s" % (val, name))
+    raise abstract_utils.ConversionError(f"{val} is not of type {name}")
 
   def name_to_value(self, name, subst=None, ast=None):
     if ast is None:
@@ -182,8 +182,7 @@ class Converter(utils.ContextWeakrefMixin):
   def tuple_to_value(self, content):
     """Create a VM tuple from the given sequence."""
     content = tuple(content)  # content might be a generator
-    value = abstract.Tuple(content, self.ctx)
-    return value
+    return abstract.Tuple(content, self.ctx)
 
   def build_none(self, node):
     return self.none.to_variable(node)
@@ -344,17 +343,15 @@ class Converter(utils.ContextWeakrefMixin):
       return abstract.ParameterizedClass(new_container,
                                          old_container.formal_type_parameters,
                                          self.ctx)
-    else:
-      assert isinstance(old_container, abstract.Class)
-      return new_container
+    assert isinstance(old_container, abstract.Class)
+    return new_container
 
   def widen_type(self, container):
     """Widen a tuple to an iterable, or a dict to a mapping."""
     if container.full_name == "builtins.tuple":
       return self._copy_type_parameters(container, "typing.Iterable")
-    else:
-      assert container.full_name == "builtins.dict", container.full_name
-      return self._copy_type_parameters(container, "typing.Mapping")
+    assert container.full_name == "builtins.dict", container.full_name
+    return self._copy_type_parameters(container, "typing.Mapping")
 
   def merge_values(self, values):
     """Merge a collection of values into a single one."""
@@ -422,15 +419,12 @@ class Converter(utils.ContextWeakrefMixin):
         if isinstance(t, pytd.TypeParameter):
           if not subst or t.full_name not in subst:
             raise self.TypeParameterError(t.full_name)
-          else:
-            for v in subst[t.full_name].bindings:
-              for source_set in source_sets:
-                var.AddBinding(self.get_maybe_abstract_instance(v.data)
-                               if discard_concrete_values else v.data,
-                               source_set + [v], node)
-        elif isinstance(t, pytd.NothingType):
-          pass
-        else:
+          for v in subst[t.full_name].bindings:
+            for source_set in source_sets:
+              var.AddBinding(self.get_maybe_abstract_instance(v.data)
+                             if discard_concrete_values else v.data,
+                             source_set + [v], node)
+        elif not isinstance(t, pytd.NothingType):
           value = self.constant_to_value(
               abstract_utils.AsInstance(t), subst, node)
           for source_set in source_sets:
@@ -448,12 +442,12 @@ class Converter(utils.ContextWeakrefMixin):
     if pyval.__class__ == tuple:
       # This case needs to go at the end because many things are actually also
       # tuples.
-      return self.build_tuple(self.ctx.root_node,
-                              (self.constant_to_var(v, subst, node, source_sets,
-                                                    discard_concrete_values)
-                               for i, v in enumerate(pyval)))
-    raise ValueError(
-        "Cannot convert {} to an abstract value".format(pyval.__class__))
+      return self.build_tuple(
+          self.ctx.root_node,
+          (self.constant_to_var(v, subst, node, source_sets,
+                                discard_concrete_values) for v in pyval),
+      )
+    raise ValueError(f"Cannot convert {pyval.__class__} to an abstract value")
 
   def constant_to_value(self, pyval, subst=None, node=None):
     """Like constant_to_var, but convert to an abstract.BaseValue.
@@ -522,16 +516,14 @@ class Converter(utils.ContextWeakrefMixin):
     parts = late_type.name.split(".")
     for i in range(len(parts)-1):
       module_parts = module_utils.strip_init_suffix(parts[:-(i+1)])
-      ast = self.ctx.loader.import_name(".".join(module_parts))
-      if ast:
+      if ast := self.ctx.loader.import_name(".".join(module_parts)):
         return ast, ".".join(parts[-(i+1):])
     return None, late_type.name
 
   def _load_late_type(self, late_type):
     """Resolve a late type, possibly by loading a module."""
     if late_type.name not in self._resolved_late_types:
-      ast = self.ctx.loader.import_name(late_type.name)
-      if ast:
+      if ast := self.ctx.loader.import_name(late_type.name):
         t = pytd.Module(name=late_type.name, module_name=late_type.name)
       else:
         ast, attr_name = self._load_late_type_module(late_type)

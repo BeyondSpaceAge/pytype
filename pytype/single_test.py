@@ -73,7 +73,7 @@ class PytypeTest(test_base.UnitTest):
     pytype_args = [pytype_exe]
     for arg, value in pytype_args_dict.items():
       if value is not self.INCLUDE:
-        arg += "=" + str(value)
+        arg += f"={str(value)}"
       pytype_args.append(arg)
     return subprocess.Popen(  # pylint: disable=consider-using-with
         pytype_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -144,11 +144,11 @@ class PytypeTest(test_base.UnitTest):
     for output_type in output_types:
       output_value = getattr(self, output_type)
       if has_output[output_type]:
-        self.assertTrue(output_value, output_type + " unexpectedly empty")
+        self.assertTrue(output_value, f"{output_type} unexpectedly empty")
       else:
         value = str(output_value)
         if len(value) > 50:
-          value = value[:47] + "..."
+          value = f"{value[:47]}..."
         self.assertFalse(
             output_value, "Unexpected output to %s: %r" % (output_type, value))
 

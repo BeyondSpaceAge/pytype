@@ -120,10 +120,8 @@ def _dedup_opcodes(stack):
   if len(stack) > 1:
     stack = [x for x in stack if not x.skip_in_tracebacks]
   for frame in stack:
-    if frame.current_opcode:
-      if deduped_stack and (
-          frame.current_opcode.line == deduped_stack[-1].current_opcode.line):
-        continue
+    if frame.current_opcode and (not deduped_stack or frame.current_opcode.line
+                                 != deduped_stack[-1].current_opcode.line):
       # We can have consecutive opcodes with the same line number due to, e.g.,
       # a set comprehension. The first opcode we encounter is the one with the
       # real method name, whereas the second's method name is something like
@@ -166,13 +164,10 @@ def _compare_traceback_strings(left, right):
 def _function_name(name, capitalize=False):
   builtin_prefix = "builtins."
   if name.startswith(builtin_prefix):
-    ret = "built-in function %s" % name[len(builtin_prefix):]
+    ret = f"built-in function {name[len(builtin_prefix):]}"
   else:
-    ret = "function %s" % name
-  if capitalize:
-    return ret[0].upper() + ret[1:]
-  else:
-    return ret
+    ret = f"function {name}"
+  return ret[0].upper() + ret[1:] if capitalize else ret
 
 
 class CheckPoint:
@@ -307,7 +302,7 @@ class Error:
 
   def _position(self):
     """Return human-readable filename + line number."""
-    method = ", in %s" % self._methodname if self._methodname else ""
+    method = f", in {self._methodname}" if self._methodname else ""
 
     if self._filename:
       return "File \"%s\", line %d%s" % (self._filename,
@@ -495,8 +490,7 @@ class ErrorLog(ErrorLogBase):
     # becomes just "X", by extracting out just the type name.
     if "namedtuple" in name:
       return escape.unpack_namedtuple(name)
-    nested_class_match = re.search(r"_(?:\w+)_DOT_", name)
-    if nested_class_match:
+    if nested_class_match := re.search(r"_(?:\w+)_DOT_", name):
       # Pytype doesn't have true support for nested classes. Instead, for
       #   class Foo:
       #     class Bar: ...
@@ -527,7 +521,7 @@ class ErrorLog(ErrorLogBase):
     elif isinstance(t, abstract.AnnotationClass) or t.cls == t:
       return t.name
     else:
-      return "<instance of %s>" % self._print_as_expected_type(t.cls, t)
+      return f"<instance of {self._print_as_expected_type(t.cls, t)}>"
 
   def _print_as_actual_type(self, t, literal=False):
     if literal:
@@ -552,7 +546,7 @@ class ErrorLog(ErrorLogBase):
     with convert.set_output_mode(convert.OutputMode.DETAILED):
       expected = self._pytd_print(formal.get_instance_type(node))
       if isinstance(formal, typed_dict_overlay.TypedDictClass):
-        expected = expected + "(TypedDict)"
+        expected = f"{expected}(TypedDict)"
     if "Literal[" in expected:
       output_mode = convert.OutputMode.LITERAL
     else:
@@ -669,14 +663,14 @@ class ErrorLog(ErrorLogBase):
         else:
           new_types.append(t)
       if literal_contents:
-        literal = "Literal[%s]" %", ".join(sorted(literal_contents))
+        literal = f'Literal[{", ".join(sorted(literal_contents))}]'
         new_types.append(literal)
       if len(new_types) > 1:
-        out = "Union[%s]" % ", ".join(sorted(new_types))
+        out = f'Union[{", ".join(sorted(new_types))}]'
       else:
         out = new_types[0]
       if optional:
-        out = "Optional[%s]" % out
+        out = f"Optional[{out}]"
       return out
     else:
       return "nothing"
@@ -704,7 +698,7 @@ class ErrorLog(ErrorLogBase):
       suffix = " = ..." if name in sig.defaults else ""
       if bad_param and name == bad_param.name:
         type_str = self._print_as_expected_type(bad_param.expected)
-        suffix = ": " + type_str + suffix
+        suffix = f": {type_str}{suffix}"
       yield prefix, name, suffix
 
   def _iter_actual(self, sig, passed_args, bad_param, literal):
@@ -741,7 +735,7 @@ class ErrorLog(ErrorLogBase):
         printed_params.append("...")
         break
       elif pytd_utils.ANON_PARAM.match(name):
-        printed_params.append(prefix + "_")
+        printed_params.append(f"{prefix}_")
       else:
         printed_params.append(prefix + name)
     return ", ".join(printed_params)
@@ -792,9 +786,12 @@ class ErrorLog(ErrorLogBase):
   @_error_name("unbound-type-param")
   def unbound_type_param(self, stack, obj, attr_name, type_param_name):
     self.error(
-        stack, "Can't access attribute %r on %s" % (attr_name, obj.name),
-        "No binding for type parameter %s" % type_param_name, keyword=attr_name,
-        keyword_context=obj.name)
+        stack,
+        "Can't access attribute %r on %s" % (attr_name, obj.name),
+        f"No binding for type parameter {type_param_name}",
+        keyword=attr_name,
+        keyword_context=obj.name,
+    )
 
   @_error_name("name-error")
   def name_error(self, stack, name, details=None):
@@ -852,14 +849,12 @@ class ErrorLog(ErrorLogBase):
 
   def wrong_arg_types(self, stack, name, bad_call):
     """Log [wrong-arg-types]."""
-    operation = self._get_binary_operation(name, bad_call)
-    if operation:
+    if operation := self._get_binary_operation(name, bad_call):
       operator, left_operand, right_operand = operation
       operator_name = _function_name(operator, capitalize=True)
       expected_right_operand = self._print_as_expected_type(
           bad_call.bad_param.expected)
-      details = "%s on %s expects %s" % (
-          operator_name, left_operand, expected_right_operand)
+      details = f"{operator_name} on {left_operand} expects {expected_right_operand}"
       self._unsupported_operands(
           stack, operator, left_operand, right_operand, details=details)
     else:
@@ -868,20 +863,16 @@ class ErrorLog(ErrorLogBase):
   @_error_name("wrong-arg-types")
   def _wrong_arg_types(self, stack, name, bad_call):
     """A function was called with the wrong parameter types."""
-    message = ("%s was called with the wrong arguments" %
-               _function_name(name, capitalize=True))
+    message = f"{_function_name(name, capitalize=True)} was called with the wrong arguments"
     self._invalid_parameters(stack, message, bad_call)
 
   @_error_name("wrong-keyword-args")
   def wrong_keyword_args(self, stack, name, bad_call, extra_keywords):
     """A function was called with extra keywords."""
     if len(extra_keywords) == 1:
-      message = "Invalid keyword argument %s to %s" % (
-          extra_keywords[0], _function_name(name))
+      message = f"Invalid keyword argument {extra_keywords[0]} to {_function_name(name)}"
     else:
-      message = "Invalid keyword arguments %s to %s" % (
-          "(" + ", ".join(sorted(extra_keywords)) + ")",
-          _function_name(name))
+      message = f'Invalid keyword arguments {"(" + ", ".join(sorted(extra_keywords)) + ")"} to {_function_name(name)}'
     self._invalid_parameters(stack, message, bad_call)
 
   @_error_name("missing-parameter")
@@ -903,7 +894,7 @@ class ErrorLog(ErrorLogBase):
 
   @_error_name("not-indexable")
   def not_indexable(self, stack, name, generic_warning=False):
-    message = "class %s is not indexable" % name
+    message = f"class {name} is not indexable"
     if generic_warning:
       self.error(stack, message, "(%r does not subclass Generic)" % name,
                  keyword=name)
@@ -919,13 +910,16 @@ class ErrorLog(ErrorLogBase):
 
   @_error_name("ignored-abstractmethod")
   def ignored_abstractmethod(self, stack, cls_name, method_name):
-    message = "Stray abc.abstractmethod decorator on method %s" % method_name
-    self.error(stack, message,
-               details="(%s does not have metaclass abc.ABCMeta)" % cls_name)
+    message = f"Stray abc.abstractmethod decorator on method {method_name}"
+    self.error(
+        stack,
+        message,
+        details=f"({cls_name} does not have metaclass abc.ABCMeta)",
+    )
 
   @_error_name("ignored-metaclass")
   def ignored_metaclass(self, stack, cls, metaclass):
-    message = "Metaclass %s on class %s ignored in Python 3" % (metaclass, cls)
+    message = f"Metaclass {metaclass} on class {cls} ignored in Python 3"
     self.error(stack, message)
 
   @_error_name("duplicate-keyword-argument")
@@ -965,18 +959,19 @@ class ErrorLog(ErrorLogBase):
       self.name_error(stack, error.name)
     elif isinstance(error, typed_dict_overlay.TypedDictKeyMissing):
       self.typed_dict_error(stack, error.typed_dict, error.name)
-    elif isinstance(error, function.DictKeyMissing):
-      # We don't report DictKeyMissing because the false positive rate is high.
-      pass
-    else:
+    elif not isinstance(error, function.DictKeyMissing):
       raise AssertionError(error)
 
   @_error_name("base-class-error")
   def base_class_error(self, stack, base_var, details=None):
     base_cls = self._join_printed_types(
         self._print_as_expected_type(t) for t in base_var.data)
-    self.error(stack, "Invalid base class: %s" % base_cls,
-               details=details, keyword=base_cls)
+    self.error(
+        stack,
+        f"Invalid base class: {base_cls}",
+        details=details,
+        keyword=base_cls,
+    )
 
   @_error_name("bad-return-type")
   def bad_return_type(self, stack, node, formal, actual, bad):
@@ -1092,7 +1087,7 @@ class ErrorLog(ErrorLogBase):
     base_type = self._print_as_expected_type(annot)
     full_type = base_type + self._print_params_helper(params)
     if template:
-      templated_type = "%s[%s]" % (base_type, ", ".join(template))
+      templated_type = f'{base_type}[{", ".join(template)}]'
     else:
       templated_type = base_type
     details = "%s expected %d parameter%s, got %d" % (
@@ -1102,10 +1097,7 @@ class ErrorLog(ErrorLogBase):
 
   def invalid_ellipses(self, stack, indices, container_name):
     if indices:
-      details = "Not allowed at %s %s in %s" % (
-          "index" if len(indices) == 1 else "indices",
-          ", ".join(str(i) for i in sorted(indices)),
-          container_name)
+      details = f'Not allowed at {"index" if len(indices) == 1 else "indices"} {", ".join((str(i) for i in sorted(indices)))} in {container_name}'
       self._invalid_annotation(stack, "Ellipsis", details, None)
 
   def ambiguous_annotation(
@@ -1124,21 +1116,18 @@ class ErrorLog(ErrorLogBase):
   @_error_name("invalid-annotation")
   def _invalid_annotation(self, stack, annot_string, details, name):
     """Log the invalid annotation."""
-    if name is None:
-      suffix = ""
-    else:
-      suffix = "for " + name
+    suffix = "" if name is None else f"for {name}"
     annot_string = "%r " % annot_string if annot_string else ""
-    self.error(stack, "Invalid type annotation %s%s" % (annot_string, suffix),
-               details=details)
+    self.error(
+        stack,
+        f"Invalid type annotation {annot_string}{suffix}",
+        details=details)
 
   @_error_name("mro-error")
   def mro_error(self, stack, name, mro_seqs, details=None):
-    seqs = []
-    for seq in mro_seqs:
-      seqs.append("[%s]" % ", ".join(cls.name for cls in seq))
-    suffix = ": %s" % ", ".join(seqs) if seqs else ""
-    msg = "%s has invalid inheritance%s." % (name, suffix)
+    seqs = [f'[{", ".join((cls.name for cls in seq))}]' for seq in mro_seqs]
+    suffix = f': {", ".join(seqs)}' if seqs else ""
+    msg = f"{name} has invalid inheritance{suffix}."
     self.error(stack, msg, keyword=name, details=details)
 
   @_error_name("invalid-directive")
@@ -1148,7 +1137,7 @@ class ErrorLog(ErrorLogBase):
 
   @_error_name("late-directive")
   def late_directive(self, filename, lineno, name):
-    message = "%s disabled from here to the end of the file" % name
+    message = f"{name} disabled from here to the end of the file"
     details = ("Consider limiting this directive's scope or moving it to the "
                "top of the file.")
     self._add(Error(SEVERITY_WARNING, message, details=details,
@@ -1156,7 +1145,7 @@ class ErrorLog(ErrorLogBase):
 
   @_error_name("not-supported-yet")
   def not_supported_yet(self, stack, feature, details=None):
-    self.error(stack, "%s not supported yet" % feature, details=details)
+    self.error(stack, f"{feature} not supported yet", details=details)
 
   @_error_name("python-compiler-error")
   def python_compiler_error(self, filename, lineno, message):
@@ -1165,7 +1154,7 @@ class ErrorLog(ErrorLogBase):
 
   @_error_name("recursion-error")
   def recursion_error(self, stack, name):
-    self.error(stack, "Detected recursion in %s" % name, keyword=name)
+    self.error(stack, f"Detected recursion in {name}", keyword=name)
 
   @_error_name("redundant-function-type-comment")
   def redundant_function_type_comment(self, filename, lineno):
@@ -1176,21 +1165,24 @@ class ErrorLog(ErrorLogBase):
 
   @_error_name("invalid-function-type-comment")
   def invalid_function_type_comment(self, stack, comment, details=None):
-    self.error(stack, "Invalid function type comment: %s" % comment,
-               details=details)
+    self.error(stack, f"Invalid function type comment: {comment}", details=details)
 
   @_error_name("ignored-type-comment")
   def ignored_type_comment(self, filename, lineno, comment):
-    self._add(Error(
-        SEVERITY_WARNING, "Stray type comment: %s" % comment,
-        filename=filename, lineno=lineno))
+    self._add(
+        Error(
+            SEVERITY_WARNING,
+            f"Stray type comment: {comment}",
+            filename=filename,
+            lineno=lineno,
+        ))
 
   @_error_name("invalid-typevar")
   def invalid_typevar(self, stack, comment, bad_call=None):
     if bad_call:
       self._invalid_parameters(stack, comment, bad_call)
     else:
-      self.error(stack, "Invalid TypeVar: %s" % comment)
+      self.error(stack, f"Invalid TypeVar: {comment}")
 
   @_error_name("invalid-namedtuple-arg")
   def invalid_namedtuple_arg(self, stack, badname=None, err_msg=None):
@@ -1215,7 +1207,7 @@ class ErrorLog(ErrorLogBase):
     prettify = lambda v, label: "%d %s%s" % (v, label, "" if v == 1 else "s")
     vals_str = prettify(num_vals, "value")
     vars_str = prettify(num_vars, "variable")
-    msg = "Cannot unpack %s into %s" % (vals_str, vars_str)
+    msg = f"Cannot unpack {vals_str} into {vars_str}"
     self.error(stack, msg, keyword=vals_str)
 
   @_error_name("reveal-type")
@@ -1238,7 +1230,7 @@ class ErrorLog(ErrorLogBase):
 
     # assert_type(x) checks that x is not Any
     if typ is None:
-      if types == ["Any"] or types == ["typing.Any"]:
+      if types in [["Any"], ["typing.Any"]]:
         self.error(stack, f"Asserted type was {actual}")
       return
 
@@ -1269,7 +1261,7 @@ class ErrorLog(ErrorLogBase):
       return
     annot_string = self._print_as_expected_type(annot)
     if isinstance(annot, typed_dict_overlay.TypedDictClass):
-      annot_string = annot_string + "(TypedDict)"
+      annot_string = f"{annot_string}(TypedDict)"
     literal = "Literal[" in annot_string
     actual_string = self._print_as_actual_type(binding.data, literal=literal)
     if actual_string == "None":
@@ -1277,21 +1269,22 @@ class ErrorLog(ErrorLogBase):
     additional_details = f"\n\n{details}" if details else ""
     additional_details += "".join(self._print_error_details(error_details))
     details = ("Annotation: %s\n" % annot_string +
-               "Assignment: %s" % actual_string +
-               additional_details)
+               f"Assignment: {actual_string}") + additional_details
     if len(binding.variable.bindings) > 1:
       # Joining the printed types rather than merging them before printing
       # ensures that we print all of the options when 'Any' is among them.
       # We don't need to print this if there is only 1 unique type.
-      print_types = set(self._print_as_actual_type(v, literal=literal)
-                        for v in binding.variable.data)
+      print_types = {
+          self._print_as_actual_type(v, literal=literal)
+          for v in binding.variable.data
+      }
       if len(print_types) > 1:
         details += "\nIn assignment of type: %s" % self._join_printed_types(
             print_types)
     if typed_dict is not None:
       suffix = f" for key {name} in TypedDict {typed_dict.class_name}"
     elif name is not None:
-      suffix = " for " + name
+      suffix = f" for {name}"
     else:
       suffix = ""
     err_msg = f"Type annotation{suffix} does not match type of assignment"
@@ -1330,8 +1323,8 @@ class ErrorLog(ErrorLogBase):
     details += ("Allowed contained types (from annotation %s):\n%s"
                 "New contained types:\n%s") % (
                     annotation, allowed_contained, new_contained)
-    suffix = "" if name is None else " for " + name
-    err_msg = "New container type%s does not match type annotation" % suffix
+    suffix = "" if name is None else f" for {name}"
+    err_msg = f"New container type{suffix} does not match type annotation"
     self.error(stack, err_msg, details=details)
 
   @_error_name("invalid-function-definition")
@@ -1389,10 +1382,7 @@ class ErrorLog(ErrorLogBase):
     class_signature = self._normalize_signature(class_signature)
     signatures = (f"Base signature: '{base_signature}'.\n"
                   f"Subclass signature: '{class_signature}'.")
-    if details:
-      details = signatures + "\n" + details
-    else:
-      details = signatures
+    details = signatures + "\n" + details if details else signatures
     self.error(stack, "Overriding method signature mismatch", details=details)
 
   @_error_name("final-error")
@@ -1406,8 +1396,12 @@ class ErrorLog(ErrorLogBase):
   def subclassing_final_class(self, stack, base_var, details=None):
     base_cls = self._join_printed_types(
         self._print_as_expected_type(t) for t in base_var.data)
-    self.error(stack, "Cannot subclass final class: %s" % base_cls,
-               details=details, keyword=base_cls)
+    self.error(
+        stack,
+        f"Cannot subclass final class: {base_cls}",
+        details=details,
+        keyword=base_cls,
+    )
 
   @_error_name("final-error")
   def bad_final_decorator(self, stack, obj, details=None):

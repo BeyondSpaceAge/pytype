@@ -1,4 +1,5 @@
 """Matching logic for abstract values."""
+
 import collections
 import contextlib
 import dataclasses
@@ -21,10 +22,9 @@ from pytype.pytd import pytd_utils
 log = logging.getLogger(__name__)
 
 
-_COMPATIBLE_BUILTINS = [
-    ("builtins." + compatible_builtin, "builtins." + builtin)
-    for compatible_builtin, builtin in pep484.COMPAT_ITEMS
-]
+_COMPATIBLE_BUILTINS = [(f"builtins.{compatible_builtin}",
+                         f"builtins.{builtin}")
+                        for compatible_builtin, builtin in pep484.COMPAT_ITEMS]
 
 
 def _is_callback_protocol(typ):
@@ -253,22 +253,17 @@ class AbstractMatcher(utils.ContextWeakrefMixin):
     self._reset_errors()
     if var.bindings:
       return self._match_value_against_type(view[var], other_type, subst, view)
-    else:  # Empty set of values. The "nothing" type.
-      if isinstance(other_type, abstract.TupleClass):
-        other_type = other_type.get_formal_type_parameter(abstract_utils.T)
-      if isinstance(other_type, abstract.Union):
-        right_side_options = other_type.options
-      else:
-        right_side_options = [other_type]
-      for right in right_side_options:
-        if isinstance(right, abstract.TypeParameter):
-          # If we have a union like "K or V" and we match both against
-          # nothing, that will fill in both K and V.
-          if right.full_name not in subst:
-            subst = subst.copy()
-            subst[right.full_name] = var.program.NewVariable()
-      # If this type is empty, we can match it against anything.
-      return subst
+    if isinstance(other_type, abstract.TupleClass):
+      other_type = other_type.get_formal_type_parameter(abstract_utils.T)
+    right_side_options = (other_type.options if isinstance(
+        other_type, abstract.Union) else [other_type])
+    for right in right_side_options:
+      if (isinstance(right, abstract.TypeParameter)
+          and right.full_name not in subst):
+        subst = subst.copy()
+        subst[right.full_name] = var.program.NewVariable()
+    # If this type is empty, we can match it against anything.
+    return subst
 
   def _match_type_param_against_type_param(self, t1, t2, subst, view):
     """Match a TypeVar against another TypeVar."""
@@ -409,34 +404,33 @@ class AbstractMatcher(utils.ContextWeakrefMixin):
           # We can filter out ambiguous values because we've already found the
           # single concrete type allowed for this variable.
           new_var = self.ctx.program.NewVariable(new_values, [], self._node)
+      elif other_type.full_name in subst:
+        has_error = False
+        old_values = subst[other_type.full_name].data
+        # If _discard_ambiguous_values does not discard 'left', then it is a
+        # concrete value that we need to match.
+        if old_values and self._discard_ambiguous_values([left]):
+          old_concrete_values = self._discard_ambiguous_values(old_values)
+          # If any of the previous TypeVar values were ambiguous, then we
+          # treat the match as a success. Otherwise, 'left' needs to match at
+          # least one of them.
+          if len(old_values) == len(old_concrete_values):
+            has_error = True
+            for old_value in old_concrete_values:
+              if self._satisfies_common_superclass([left, old_value]):
+                has_error = False
+              elif old_value.cls.is_protocol:
+                with self._track_partially_matched_protocols():
+                  new_subst = self._match_against_protocol(
+                      left, old_value.cls, subst, view)
+                  if new_subst is not None:
+                    has_error = False
+                    subst = new_subst
+              if not has_error:
+                break
       else:
-        if other_type.full_name in subst:
-          has_error = False
-          old_values = subst[other_type.full_name].data
-          # If _discard_ambiguous_values does not discard 'left', then it is a
-          # concrete value that we need to match.
-          if old_values and self._discard_ambiguous_values([left]):
-            old_concrete_values = self._discard_ambiguous_values(old_values)
-            # If any of the previous TypeVar values were ambiguous, then we
-            # treat the match as a success. Otherwise, 'left' needs to match at
-            # least one of them.
-            if len(old_values) == len(old_concrete_values):
-              has_error = True
-              for old_value in old_concrete_values:
-                if self._satisfies_common_superclass([left, old_value]):
-                  has_error = False
-                elif old_value.cls.is_protocol:
-                  with self._track_partially_matched_protocols():
-                    new_subst = self._match_against_protocol(
-                        left, old_value.cls, subst, view)
-                    if new_subst is not None:
-                      has_error = False
-                      subst = new_subst
-                if not has_error:
-                  break
-        else:
-          has_error = not self._satisfies_common_superclass(
-              self._discard_ambiguous_values(new_var.data))
+        has_error = not self._satisfies_common_superclass(
+            self._discard_ambiguous_values(new_var.data))
       if has_error:
         self._error_subst = subst
         return None
@@ -570,10 +564,7 @@ class AbstractMatcher(utils.ContextWeakrefMixin):
               sig, other_type, subst, view)
           if new_subst is not None:
             new_substs.append(new_subst)
-        if new_substs:
-          return self._merge_substs(subst, new_substs)
-        else:
-          return None
+        return self._merge_substs(subst, new_substs) if new_substs else None
       elif _is_callback_protocol(other_type):
         return self._match_type_against_callback_protocol(
             left, other_type, subst, view)
@@ -610,12 +601,13 @@ class AbstractMatcher(utils.ContextWeakrefMixin):
         # If left resolves to itself
         # (see tests/test_enums:EnumOverlayTest.test_unique_enum_in_dict),
         # calling _match_all_bindings would lead to an infinite recursion error.
-        if param.bindings and not any(v is left for v in param.data):
+        if param.bindings and all(v is not left for v in param.data):
           return self._match_all_bindings(param, other_type, subst, view)
       return self._instantiate_and_match(left.param, other_type, subst, view)
     else:
-      raise NotImplementedError("Matching not implemented for %s against %s" %
-                                (type(left), type(other_type)))
+      raise NotImplementedError(
+          f"Matching not implemented for {type(left)} against {type(other_type)}"
+      )
 
   def _match_type_against_callback_protocol(
       self, left, other_type, subst, view):
@@ -792,9 +784,7 @@ class AbstractMatcher(utils.ContextWeakrefMixin):
       else:
         return None
     elif isinstance(other_type, typed_dict.TypedDictClass):
-      if not self._match_dict_against_typed_dict(left, other_type):
-        return None
-      return subst
+      return subst if self._match_dict_against_typed_dict(left, other_type) else None
     elif isinstance(other_type, abstract.Class):
       if not self._satisfies_noniterable_str(left.cls, other_type):
         self._noniterable_str_error = NonIterableStrError(left.cls, other_type)
@@ -897,16 +887,15 @@ class AbstractMatcher(utils.ContextWeakrefMixin):
     """Used by _match_instance."""
     if isinstance(instance, abstract.Tuple):
       if isinstance(other_type, abstract.TupleClass):
-        if instance.tuple_length == other_type.tuple_length:
-          for i in range(instance.tuple_length):
-            instance_param = instance.pyval[i]
-            class_param = other_type.formal_type_parameters[i]
-            subst = self.match_var_against_type(
-                instance_param, class_param, subst, view)
-            if subst is None:
-              return None
-        else:
+        if instance.tuple_length != other_type.tuple_length:
           return None
+        for i in range(instance.tuple_length):
+          instance_param = instance.pyval[i]
+          class_param = other_type.formal_type_parameters[i]
+          subst = self.match_var_against_type(
+              instance_param, class_param, subst, view)
+          if subst is None:
+            return None
       elif isinstance(other_type, abstract.ParameterizedClass):
         class_param = other_type.get_formal_type_parameter(abstract_utils.T)
         # Copying the parameters directly preserves literal values. In most
@@ -1035,8 +1024,7 @@ class AbstractMatcher(utils.ContextWeakrefMixin):
     elif left.cls.is_dynamic:
       return self._subst_with_type_parameters_from(subst, other_type)
     left_attributes = self._get_attribute_names(left)
-    missing = other_type.protocol_attributes - left_attributes
-    if missing:  # not all protocol attributes are implemented by 'left'
+    if missing := other_type.protocol_attributes - left_attributes:
       self._protocol_error = ProtocolMissingAttributesError(
           left.cls, other_type, missing)
       return None
@@ -1103,8 +1091,7 @@ class AbstractMatcher(utils.ContextWeakrefMixin):
 
   def _get_attribute_types(self, other_type, attribute):
     if not abstract_utils.is_callable(attribute):
-      typ = self._get_type(attribute)
-      if typ:
+      if typ := self._get_type(attribute):
         yield typ
       return
     converter = self.ctx.pytd_convert
@@ -1195,18 +1182,16 @@ class AbstractMatcher(utils.ContextWeakrefMixin):
     return self._merge_substs(subst, new_substs)
 
   def _discard_ambiguous_values(self, values):
-    # TODO(rechen): For type parameter instances, we should extract the concrete
-    # value from v.instance so that we can check it, rather than ignoring the
-    # value altogether.
-    concrete_values = []
-    for v in values:
-      # TODO(b/200220895): This is probably wrong; we should expand unions
-      # instead of ignoring them.
-      if not isinstance(v, (abstract.AMBIGUOUS_OR_EMPTY, abstract.Union,
-                            abstract.TypeParameterInstance)):
-        if not isinstance(v.cls, abstract.AMBIGUOUS_OR_EMPTY):
-          concrete_values.append(v)
-    return concrete_values
+    return [
+        v for v in values if not isinstance(
+            v,
+            (
+                abstract.AMBIGUOUS_OR_EMPTY,
+                abstract.Union,
+                abstract.TypeParameterInstance,
+            ),
+        ) and not isinstance(v.cls, abstract.AMBIGUOUS_OR_EMPTY)
+    ]
 
   def _satisfies_single_type(self, values):
     """Enforce that the variable contains only one concrete type."""
@@ -1231,14 +1216,11 @@ class AbstractMatcher(utils.ContextWeakrefMixin):
         common_classes = superclasses
       else:
         common_classes = common_classes.intersection(superclasses)
-    if object_in_values:
-      ignored_superclasses = {}
-    else:
-      ignored_superclasses = {"builtins.object",
-                              "typing.Generic",
-                              "typing.Protocol"}
     if values:
       assert common_classes is not None
+      ignored_superclasses = ({} if object_in_values else {
+          "builtins.object", "typing.Generic", "typing.Protocol"
+      })
       if common_classes.issubset(ignored_superclasses):
         return False
     return True

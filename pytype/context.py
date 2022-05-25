@@ -120,13 +120,12 @@ class Context:
     assert nodes
     if len(nodes) == 1:
       return nodes[0]
-    else:
-      ret = self.program.NewCFGNode(self.vm.frame and
-                                    self.vm.frame.current_opcode and
-                                    self.vm.frame.current_opcode.line)
-      for node in nodes:
-        node.ConnectTo(ret)
-      return ret
+    ret = self.program.NewCFGNode(self.vm.frame and
+                                  self.vm.frame.current_opcode and
+                                  self.vm.frame.current_opcode.line)
+    for node in nodes:
+      node.ConnectTo(ret)
+    return ret
 
   def join_variables(self, node, variables):
     return cfg_utils.merge_variables(self.program, node, variables)
@@ -160,9 +159,8 @@ class Context:
     if (value.data == [self.convert.ellipsis] or
         allow_none and value.data == [self.convert.none]):
       return
-    contained_type = abstract_utils.match_type_container(
-        typ, ("typing.ClassVar", "dataclasses.InitVar"))
-    if contained_type:
+    if contained_type := abstract_utils.match_type_container(
+        typ, ("typing.ClassVar", "dataclasses.InitVar")):
       typ = contained_type
     bad, _ = self.matcher(node).bad_matches(value, typ)
     for view, error_details in bad:

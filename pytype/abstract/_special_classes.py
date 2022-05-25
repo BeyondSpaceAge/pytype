@@ -114,8 +114,7 @@ _BUILDERS = (_TypedDictBuilder, _NamedTupleBuilder)
 def maybe_build_from_pytd(name, pytd_cls, ctx):
   """Try to build a special class from a pytd class."""
   for b in _BUILDERS:
-    ret = b(ctx).maybe_build_from_pytd(name, pytd_cls)
-    if ret:
+    if ret := b(ctx).maybe_build_from_pytd(name, pytd_cls):
       return ret
   return None
 
@@ -123,7 +122,6 @@ def maybe_build_from_pytd(name, pytd_cls, ctx):
 def maybe_build_from_mro(abstract_cls, name, pytd_cls, ctx):
   """Try to build a special class from the MRO of an abstract class."""
   for b in _BUILDERS:
-    ret = b(ctx).maybe_build_from_mro(abstract_cls, name, pytd_cls)
-    if ret:
+    if ret := b(ctx).maybe_build_from_mro(abstract_cls, name, pytd_cls):
       return ret
   return None

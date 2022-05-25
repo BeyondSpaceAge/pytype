@@ -192,12 +192,7 @@ class Converter(utils.ContextWeakrefMixin):
         # We make the set immutable to ensure that the seen instances for
         # different parameter values don't interfere with one another.
         seen = frozenset()
-      if instance in seen:
-        # We have a circular dependency in our types (e.g., lst[0] == lst). Stop
-        # descending into the type parameters.
-        type_params = ()
-      else:
-        type_params = tuple(t.name for t in v.template)
+      type_params = () if instance in seen else tuple(t.name for t in v.template)
       if instance is not None:
         seen |= {instance}
       type_arguments = self._value_to_parameter_types(
@@ -257,11 +252,9 @@ class Converter(utils.ContextWeakrefMixin):
     elif isinstance(v, typing_overlay.TypeVar):
       return pytd.NamedType("builtins.type")
     elif isinstance(v, dataclass_overlay.FieldInstance):
-      if not v.default:
-        return pytd.AnythingType()
-      return pytd_utils.JoinTypes(
+      return (pytd_utils.JoinTypes(
           self.value_to_pytd_type(node, d, seen, view)
-          for d in v.default.data)
+          for d in v.default.data) if v.default else pytd.AnythingType())
     elif isinstance(v, attr_overlay.AttribInstance):
       ret = self.value_to_pytd_type(node, v.typ, seen, view)
       md = metadata.to_pytd(v.to_metadata())
@@ -357,7 +350,7 @@ class Converter(utils.ContextWeakrefMixin):
           abstract_utils.ARGS: self.ctx.convert.merge_values(args),
           abstract_utils.RET: ret
       }
-      params.update(enumerate(args))
+      params |= enumerate(args)
       return abstract.CallableClass(base_cls, params, self.ctx)
     else:
       # The only way to indicate kwonly arguments or a variable number of
@@ -416,13 +409,12 @@ class Converter(utils.ContextWeakrefMixin):
     elif isinstance(v, abstract.InterpreterClass):
       if (v.official_name is None or name == v.official_name) and not v.module:
         return self._class_to_def(node, v, name)
-      else:
-        # Represent a class alias as X: Type[Y] rather than X = Y so the pytd
-        # printer can distinguish it from a module alias.
-        type_name = v.full_name if v.module else v.official_name
-        return pytd.Constant(
-            name, pytd.GenericType(pytd.NamedType("builtins.type"),
-                                   (pytd.NamedType(type_name),)))
+      # Represent a class alias as X: Type[Y] rather than X = Y so the pytd
+      # printer can distinguish it from a module alias.
+      type_name = v.full_name if v.module else v.official_name
+      return pytd.Constant(
+          name, pytd.GenericType(pytd.NamedType("builtins.type"),
+                                 (pytd.NamedType(type_name),)))
     elif isinstance(v, abstract.TypeParameter):
       return self._typeparam_to_def(node, v, name)
     elif isinstance(v, abstract.Unsolvable):
@@ -456,8 +448,7 @@ class Converter(utils.ContextWeakrefMixin):
     """Get instance types for annotations not present in the members map."""
     if annots:
       for name, local in annots.annotated_locals.items():
-        typ = local.get_type(node, name)
-        if typ:
+        if typ := local.get_type(node, name):
           t = typ.get_instance_type(node)
           if local.final:
             t = pytd.GenericType(pytd.NamedType("typing.Final"), (t,))
@@ -592,9 +583,10 @@ class Converter(utils.ContextWeakrefMixin):
     for val in options:
       if isinstance(val, abstract.InterpreterFunction):
         combinations = val.get_call_combinations(node)
-        for node_after, _, return_value in combinations:
-          types.append(self._function_call_to_return_type(
-              node_after, val, return_value, len(combinations)))
+        types.extend(
+            self._function_call_to_return_type(node_after, val, return_value,
+                                               len(combinations))
+            for node_after, _, return_value in combinations)
       elif isinstance(val, abstract.PyTDFunction):
         types.extend(sig.pytd_sig.return_type for sig in val.signatures)
       else:
@@ -707,8 +699,7 @@ class Converter(utils.ContextWeakrefMixin):
               return sig
             # Check whether the signature's 'self' type is the current class.
             self_type = sig.params[0].type
-            maybe_params = pytd_utils.UnpackGeneric(self_type, "builtins.type")
-            if maybe_params:
+            if maybe_params := pytd_utils.UnpackGeneric(self_type, "builtins.type"):
               self_type_name = maybe_params[0].name
             else:
               self_type_name = self_type.name
@@ -717,13 +708,11 @@ class Converter(utils.ContextWeakrefMixin):
             full_name = v.official_name or v.name
             if not self_type_name.startswith(full_name):
               return None
-            # Remove any outer class prefixes from the type name.
-            if "." in full_name:
-              new_self_type = self_type.Replace(name=v.name)
-              new_first_param = sig.params[0].Replace(type=new_self_type)
-              return sig.Replace(params=(new_first_param,) + sig.params[1:])
-            else:
+            if "." not in full_name:
               return sig
+            new_self_type = self_type.Replace(name=v.name)
+            new_first_param = sig.params[0].Replace(type=new_self_type)
+            return sig.Replace(params=(new_first_param,) + sig.params[1:])
           signatures = tuple(filter(None, (fix(s) for s in method.signatures)))
           if signatures and signatures != method.signatures:
             # Filter out calls made from subclasses unless they are the only
